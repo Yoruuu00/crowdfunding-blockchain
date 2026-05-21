@@ -31,10 +31,15 @@ function App() {
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
   };
 
+  // Format index string (e.g. 1 -> #001)
+  const formatIndex = (index) => {
+    return `#${String(index + 1).padStart(3, "0")}`;
+  };
+
   // Connect MetaMask Wallet
   const connectWallet = async () => {
     if (!window.ethereum) {
-      showToast("MetaMask Not Found", "Please install MetaMask extension in your browser.", "error");
+      showToast("METAMASK NOT FOUND", "Please install MetaMask extension in your browser.", "error");
       return;
     }
     try {
@@ -46,11 +51,11 @@ function App() {
       const bal = await provider.getBalance(accounts[0]);
       setBalance(ethers.formatEther(bal));
       
-      showToast("Wallet Connected", `Successfully connected to ${formatAddress(accounts[0])}`, "success");
+      showToast("WALLET CONNECTED", `Account: ${formatAddress(accounts[0])}`, "success");
       loadCampaigns();
     } catch (error) {
       console.error(error);
-      showToast("Connection Failed", error.message || "Failed to connect wallet.", "error");
+      showToast("CONNECTION FAILED", error.message || "Failed to connect wallet.", "error");
     } finally {
       setLoading(false);
     }
@@ -82,7 +87,7 @@ function App() {
     } catch (error) {
       console.error("Error loading campaigns:", error);
     }
-  }, [showToast]);
+  }, []);
 
   // Handle account & network changes
   useEffect(() => {
@@ -112,12 +117,12 @@ function App() {
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
     if (!account) {
-      showToast("Wallet Required", "Please connect your wallet first.", "error");
+      showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
       return;
     }
 
     if (!newTitle || !newDescription || !newTarget || !newDuration) {
-      showToast("Validation Error", "Please fill in all input fields.", "error");
+      showToast("VALIDATION ERROR", "Please fill in all input fields.", "error");
       return;
     }
 
@@ -131,11 +136,11 @@ function App() {
       const durationInDays = BigInt(newDuration);
 
       const tx = await contract.buatCampaign(newTitle, newDescription, targetInWei, durationInDays);
-      showToast("Transaction Sent", "Creating campaign... please wait.", "info");
+      showToast("TX SUBMITTED", "Deploying record to local ledger... please wait.", "info");
       
       await tx.wait();
       
-      showToast("Campaign Created", "Your crowdfunding campaign has been launched successfully!", "success");
+      showToast("LEDGER UPDATED", "Campaign record written to blockchain successfully.", "success");
       
       // Clear inputs
       setNewTitle("");
@@ -149,7 +154,7 @@ function App() {
       setBalance(ethers.formatEther(bal));
     } catch (error) {
       console.error(error);
-      showToast("Launch Failed", error.reason || error.message || "Failed to create campaign.", "error");
+      showToast("TX REVERTED", error.reason || error.message || "Failed to create campaign.", "error");
     } finally {
       setLoading(false);
     }
@@ -158,13 +163,13 @@ function App() {
   // Invest/Contribute to a campaign
   const handleInvest = async (campaignId) => {
     if (!account) {
-      showToast("Wallet Required", "Please connect your wallet first.", "error");
+      showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
       return;
     }
 
     const amount = investAmounts[campaignId];
     if (!amount || parseFloat(amount) <= 0) {
-      showToast("Invalid Amount", "Please specify a positive ETH amount.", "error");
+      showToast("INVALID VALUE", "Please specify a positive ETH value.", "error");
       return;
     }
 
@@ -177,11 +182,11 @@ function App() {
       const amountInWei = ethers.parseEther(amount);
 
       const tx = await contract.investasi(campaignId, { value: amountInWei });
-      showToast("Transaction Sent", "Processing investment contribution...", "info");
+      showToast("TX SUBMITTED", "Broadcasting asset contribution...", "info");
       
       await tx.wait();
       
-      showToast("Contribution Successful", "Thank you for supporting this project!", "success");
+      showToast("LEDGER UPDATED", "Investment contribution finalized.", "success");
       
       // Clear amount
       setInvestAmounts(prev => ({ ...prev, [campaignId]: "" }));
@@ -192,7 +197,7 @@ function App() {
       setBalance(ethers.formatEther(bal));
     } catch (error) {
       console.error(error);
-      showToast("Investment Failed", error.reason || error.message || "Transaction reverted.", "error");
+      showToast("TX REVERTED", error.reason || error.message || "Transaction reverted.", "error");
     } finally {
       setLoading(false);
     }
@@ -201,7 +206,7 @@ function App() {
   // Withdraw funds from a completed campaign
   const handleWithdraw = async (campaignId) => {
     if (!account) {
-      showToast("Wallet Required", "Please connect your wallet first.", "error");
+      showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
       return;
     }
 
@@ -212,30 +217,29 @@ function App() {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, CrowdfundingContract.abi, signer);
 
       const tx = await contract.tarikDana(campaignId);
-      showToast("Transaction Sent", "Withdrawing funds to your wallet...", "info");
+      showToast("TX SUBMITTED", "Broadcasting withdrawal instruction...", "info");
       
       await tx.wait();
       
-      showToast("Withdrawal Successful", "Funds successfully transferred to your wallet!", "success");
+      showToast("LEDGER UPDATED", "Funds transferred to campaign owner account.", "success");
       
       loadCampaigns();
       const bal = await provider.getBalance(account);
       setBalance(ethers.formatEther(bal));
     } catch (error) {
       console.error(error);
-      showToast("Withdrawal Failed", error.reason || error.message || "Transaction reverted.", "error");
+      showToast("TX REVERTED", error.reason || error.message || "Transaction reverted.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper to handle input change for investment amount
   const handleInvestAmountChange = (campaignId, val) => {
     setInvestAmounts(prev => ({ ...prev, [campaignId]: val }));
   };
 
   return (
-    <div className="app-container">
+    <div className="grid-container">
       {/* Toast Alert */}
       {toast && (
         <div className={`alert-toast toast-${toast.type}`}>
@@ -247,8 +251,8 @@ function App() {
       {/* Header */}
       <header>
         <div className="logo-section">
-          <span className="logo-icon">🌱</span>
-          <span className="logo-text">ChainFund</span>
+          <span className="logo-icon">CF</span>
+          <span className="logo-text">CHAINFUND</span>
         </div>
 
         {account ? (
@@ -256,30 +260,30 @@ function App() {
             <span className="wallet-indicator"></span>
             <span>{formatAddress(account)}</span>
             <span style={{ color: "var(--text-muted)", marginLeft: "0.25rem" }}>
-              ({parseFloat(balance).toFixed(4)} ETH)
+              [{parseFloat(balance).toFixed(4)} ETH]
             </span>
           </div>
         ) : (
           <button className="btn-connect" onClick={connectWallet} disabled={loading}>
-            {loading ? <div className="loading-spinner" style={{ width: "16px", height: "16px" }}></div> : "Connect MetaMask"}
+            {loading ? <div className="loading-spinner"></div> : "[ CONNECT WALLET ]"}
           </button>
         )}
       </header>
 
-      {/* Dashboard Stats */}
+      {/* Ledger Statistics Banner */}
       <section className="stats-banner">
         <div className="stat-card">
-          <span className="stat-label">Total Campaigns</span>
+          <span className="stat-label">01 / TOTAL RECORDED</span>
           <span className="stat-value">{campaigns.length}</span>
         </div>
         <div className="stat-card">
-          <span className="stat-label">Active Campaigns</span>
+          <span className="stat-label">02 / ACTIVE CAMPAIGNS</span>
           <span className="stat-value">
             {campaigns.filter((c) => c.aktif && c.deadline * 1000 > Date.now()).length}
           </span>
         </div>
         <div className="stat-card">
-          <span className="stat-label">Total Funded Value</span>
+          <span className="stat-label">03 / CUMULATIVE VALUE</span>
           <span className="stat-value">
             {campaigns.reduce((acc, c) => acc + parseFloat(c.danaTerkumpul), 0).toFixed(3)} ETH
           </span>
@@ -288,21 +292,20 @@ function App() {
 
       {/* Main layout */}
       <main className="main-layout">
-        {/* Left Side: Campaign Lists */}
-        <section>
-          <h2 className="panel-title" style={{ marginBottom: "1.5rem" }}>
-            📢 Active Crowdfunding Campaigns
+        {/* Left Side: Ledger/Active Entries */}
+        <section className="panel-left">
+          <h2 className="panel-title">
+            <span className="number">INDEX</span> LEDGER ENTRIES
           </h2>
           
           {campaigns.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">📂</div>
-              <h3>No Campaigns Created Yet</h3>
-              <p>Be the first one to pitch an idea and raise funds on the blockchain!</p>
+              <h3>NO ENTRIES DETECTED</h3>
+              <p>THE LEDGER IS EMPTY. INITIATE A NEW CROWDFUNDING ENTRY FROM THE CONTROL PANEL TO BEGIN RECORDING METRICS.</p>
             </div>
           ) : (
             <div className="campaign-grid">
-              {campaigns.map((c) => {
+              {campaigns.map((c, index) => {
                 const isDeadlinePassed = c.deadline * 1000 < Date.now();
                 const isCompleted = parseFloat(c.danaTerkumpul) >= parseFloat(c.targetDana);
                 const progressPercentage = Math.min(
@@ -314,85 +317,94 @@ function App() {
 
                 return (
                   <div className="campaign-card" key={c.id}>
-                    <div className="campaign-header">
-                      <h3 className="campaign-title">{c.judul}</h3>
-                      <span className={`campaign-badge ${c.aktif && !isDeadlinePassed ? "badge-active" : "badge-ended"}`}>
-                        {c.aktif && !isDeadlinePassed ? "Active" : "Closed"}
+                    <div className="campaign-meta-line">
+                      <span className="campaign-index">{formatIndex(index)}</span>
+                      <span className={`campaign-status ${c.aktif && !isDeadlinePassed ? "status-active" : "status-closed"}`}>
+                        {c.aktif && !isDeadlinePassed ? "active" : "closed"}
                       </span>
+                    </div>
+
+                    <div className="campaign-title-row">
+                      <h3 className="campaign-title">{c.judul}</h3>
                     </div>
 
                     <p className="campaign-desc">{c.deskripsi}</p>
 
-                    <div className="owner-pill">
-                      <span>Owner:</span>
-                      <span className="owner-address" title={c.pemilik}>
-                        {isUserOwner ? "You" : formatAddress(c.pemilik)}
-                      </span>
+                    <div className="owner-row">
+                      <span className="label">ORIGIN:</span>
+                      <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
                     </div>
 
-                    <div className="campaign-progress-bar">
-                      <div 
-                        className="campaign-progress-fill" 
-                        style={{ width: `${progressPercentage}%` }}
-                      ></div>
-                    </div>
-
-                    <div className="campaign-details-grid">
-                      <div className="detail-item">
-                        <span className="detail-label">Progress</span>
-                        <span className="detail-val">{progressPercentage.toFixed(1)}%</span>
+                    {/* Monospace Progress */}
+                    <div className="progress-container">
+                      <div className="progress-text">
+                        <span>LEDGER METRIC PROGRESS</span>
+                        <span>{progressPercentage.toFixed(1)}%</span>
                       </div>
-                      <div className="detail-item">
-                        <span className="detail-label">Collected</span>
-                        <span className="detail-val">{c.danaTerkumpul} ETH</span>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-label">Target Goal</span>
-                        <span className="detail-val">{c.targetDana} ETH</span>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-label">Deadline</span>
-                        <span className="detail-val" style={{ fontSize: "0.95rem" }}>
-                          {dateObj.toLocaleDateString()}
-                        </span>
+                      <div className="progress-track">
+                        <div 
+                          className="progress-fill" 
+                          style={{ width: `${progressPercentage}%` }}
+                        ></div>
                       </div>
                     </div>
 
-                    {/* Owner Withdraw Panel */}
+                    {/* Metadata Table */}
+                    <div className="ledger-details">
+                      <div className="ledger-cell">
+                        <span className="ledger-cell-label">COLLECTED VALUE</span>
+                        <span className="ledger-cell-value">{c.danaTerkumpul} ETH</span>
+                      </div>
+                      <div className="ledger-cell">
+                        <span className="ledger-cell-label">TARGET REQUIREMENT</span>
+                        <span className="ledger-cell-value">{c.targetDana} ETH</span>
+                      </div>
+                      <div className="ledger-cell">
+                        <span className="ledger-cell-label">LEDGER CLOSURE</span>
+                        <span className="ledger-cell-value">{dateObj.toLocaleDateString()}</span>
+                      </div>
+                      <div className="ledger-cell">
+                        <span className="ledger-cell-label">STATUS CODE</span>
+                        <span className="ledger-cell-value">{c.aktif ? "0x01 / ACTIVE" : "0x00 / TERMINATED"}</span>
+                      </div>
+                    </div>
+
+                    {/* Owner Withdrawal Notification / Button */}
                     {isUserOwner && c.aktif && isCompleted && (
-                      <div style={{ marginTop: "1rem" }}>
+                      <div className="action-box">
+                        <div className="action-box-text">TARGET CRITERIA MET. UNLOCKED FOR SETTLEMENT.</div>
                         <button 
-                          className="btn-withdraw" 
+                          className="btn-action" 
                           onClick={() => handleWithdraw(c.id)}
                           disabled={loading}
                         >
-                          {loading ? "Processing..." : "Withdraw Target Funds"}
+                          {loading ? "PENDING..." : "SETTLE FUNDS"}
                         </button>
                       </div>
                     )}
 
-                    {/* Contribution Input (only for active, not closed) */}
+                    {/* Investment Forms */}
                     {c.aktif && !isDeadlinePassed && (
-                      <div className="contribution-form" style={{ marginTop: "1.25rem" }}>
-                        <div className="input-eth-wrapper">
+                      <div className="contribution-row">
+                        <div className="input-mono-wrapper">
                           <input 
                             type="number" 
                             step="0.01" 
                             min="0"
-                            placeholder="0.1" 
+                            placeholder="0.10" 
                             className="form-input"
                             value={investAmounts[c.id] || ""}
                             onChange={(e) => handleInvestAmountChange(c.id, e.target.value)}
                             disabled={loading}
                           />
-                          <span className="eth-suffix">ETH</span>
+                          <span className="input-suffix">ETH</span>
                         </div>
                         <button 
-                          className="btn-invest"
+                          className="btn-secondary"
                           onClick={() => handleInvest(c.id)}
                           disabled={loading}
                         >
-                          Invest
+                          CONTRIBUTE
                         </button>
                       </div>
                     )}
@@ -403,73 +415,78 @@ function App() {
           )}
         </section>
 
-        {/* Right Side: Create Campaign Form */}
-        <section>
-          <div className="glass-panel">
-            <h2 className="panel-title">🌱 Start a New Campaign</h2>
-            
-            <form onSubmit={handleCreateCampaign}>
-              <div className="form-group">
-                <label className="form-label">Campaign Title</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="e.g. Build Solar Powered Water Well"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-              </div>
+        {/* Right Side: Ledger Registry Inputs */}
+        <section className="panel-right">
+          <h2 className="panel-title">
+            <span className="number">REG</span> INITIALIZE ENTRY
+          </h2>
+          
+          <form onSubmit={handleCreateCampaign}>
+            <div className="form-group">
+              <label className="form-label">ENTRY IDENTIFIER / TITLE</label>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="PROPOSAL IDENTIFIER"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
 
-              <div className="form-group">
-                <label className="form-label">Description</label>
-                <textarea 
-                  className="form-input" 
-                  placeholder="Explain what your project is about and how funds will be used..."
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">LEDGER MEMORANDUM / DESCRIPTION</label>
+              <textarea 
+                className="form-input" 
+                placeholder="DETAILED INSTRUCTIONS AND PARAMETERS..."
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
 
-              <div className="form-group">
-                <label className="form-label">Target Funding (ETH)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  min="0.001" 
-                  className="form-input" 
-                  placeholder="0.5"
-                  value={newTarget}
-                  onChange={(e) => setNewTarget(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">FUNDING LIMIT (ETH)</label>
+              <input 
+                type="number" 
+                step="0.01" 
+                min="0.001" 
+                className="form-input" 
+                placeholder="1.00"
+                value={newTarget}
+                onChange={(e) => setNewTarget(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
 
-              <div className="form-group">
-                <label className="form-label">Campaign Duration (Days)</label>
-                <input 
-                  type="number" 
-                  min="1" 
-                  className="form-input" 
-                  placeholder="30"
-                  value={newDuration}
-                  onChange={(e) => setNewDuration(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">REGISTRY LIFESPAN (DAYS)</label>
+              <input 
+                type="number" 
+                min="1" 
+                className="form-input" 
+                placeholder="30"
+                value={newDuration}
+                onChange={(e) => setNewDuration(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
 
-              <button type="submit" className="btn-primary" disabled={loading}>
-                {loading ? <div className="loading-spinner" style={{ width: "20px", height: "20px" }}></div> : "Deploy to Blockchain"}
-              </button>
-            </form>
-          </div>
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? <div className="loading-spinner"></div> : "PUBLISH ENTRY TO LEDGER"}
+            </button>
+          </form>
         </section>
       </main>
+
+      {/* Bottom stamp */}
+      <footer className="legal-notice">
+        CHAINFUND DECENTRALIZED PROTOCOL // VERSION 1.0.0 // LOCAL HOST NETWORK
+      </footer>
     </div>
   );
 }
