@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS } from "./contracts/contractAddress";
-import CrowdfundingContract from "./contracts/CrowdfundingContract.json";
+import { 
+  getReadOnlyContract, 
+  getWriteContract, 
+  getWeb3Details 
+} from "./contracts/contract";
+import CreateCampaign from "./components/CreateCampaign";
 
 function App() {
   const [account, setAccount] = useState("");
@@ -9,12 +13,6 @@ function App() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
-
-  // Form State
-  const [newTitle, setNewTitle] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  const [newTarget, setNewTarget] = useState("");
-  const [newDuration, setNewDuration] = useState("");
 
   // Investment State per campaign
   const [investAmounts, setInvestAmounts] = useState({});
@@ -44,15 +42,15 @@ function App() {
     }
     try {
       setLoading(true);
+      // Request account access if needed
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      setAccount(accounts[0]);
-      
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const bal = await provider.getBalance(accounts[0]);
-      setBalance(ethers.formatEther(bal));
-      
-      showToast("WALLET CONNECTED", `Account: ${formatAddress(accounts[0])}`, "success");
-      loadCampaigns();
+      if (accounts.length > 0) {
+        const details = await getWeb3Details();
+        setAccount(details.account || accounts[0]);
+        setBalance(details.balance);
+        showToast("WALLET CONNECTED", `Account: ${formatAddress(accounts[0])}`, "success");
+        loadCampaigns();
+      }
     } catch (error) {
       console.error(error);
       showToast("CONNECTION FAILED", error.message || "Failed to connect wallet.", "error");
@@ -64,12 +62,7 @@ function App() {
   // Load campaigns from contract
   const loadCampaigns = useCallback(async () => {
     try {
-      const provider = window.ethereum 
-        ? new ethers.BrowserProvider(window.ethereum)
-        : new ethers.JsonRpcProvider("http://127.0.0.1:8545");
-
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, CrowdfundingContract.abi, provider);
-      
+      const contract = getReadOnlyContract();
       const list = await contract.semuaCampaign();
       
       const formattedList = list.map((c) => ({
@@ -89,16 +82,30 @@ function App() {
     }
   }, []);
 
+  // Handle successful campaign creation
+  const handleSuccess = async () => {
+    loadCampaigns();
+    const details = await getWeb3Details();
+    setBalance(details.balance);
+  };
+
   // Handle account & network changes
   useEffect(() => {
+    const initWeb3 = async () => {
+      const details = await getWeb3Details();
+      if (details.account) {
+        setAccount(details.account);
+        setBalance(details.balance);
+      }
+    };
+    initWeb3();
+
     if (window.ethereum) {
-      window.ethereum.on("accountsChanged", (accounts) => {
+      window.ethereum.on("accountsChanged", async (accounts) => {
         if (accounts.length > 0) {
-          setAccount(accounts[0]);
-          const provider = new ethers.BrowserProvider(window.ethereum);
-          provider.getBalance(accounts[0]).then((bal) => {
-            setBalance(ethers.formatEther(bal));
-          });
+          const details = await getWeb3Details();
+          setAccount(details.account || accounts[0]);
+          setBalance(details.balance);
         } else {
           setAccount("");
           setBalance("0");
@@ -112,53 +119,6 @@ function App() {
 
     loadCampaigns();
   }, [loadCampaigns]);
-
-  // Create a new campaign
-  const handleCreateCampaign = async (e) => {
-    e.preventDefault();
-    if (!account) {
-      showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
-      return;
-    }
-
-    if (!newTitle || !newDescription || !newTarget || !newDuration) {
-      showToast("VALIDATION ERROR", "Please fill in all input fields.", "error");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, CrowdfundingContract.abi, signer);
-
-      const targetInWei = ethers.parseEther(newTarget);
-      const durationInDays = BigInt(newDuration);
-
-      const tx = await contract.buatCampaign(newTitle, newDescription, targetInWei, durationInDays);
-      showToast("TX SUBMITTED", "Deploying record to local ledger... please wait.", "info");
-      
-      await tx.wait();
-      
-      showToast("LEDGER UPDATED", "Campaign record written to blockchain successfully.", "success");
-      
-      // Clear inputs
-      setNewTitle("");
-      setNewDescription("");
-      setNewTarget("");
-      setNewDuration("");
-      
-      // Refresh
-      loadCampaigns();
-      const bal = await provider.getBalance(account);
-      setBalance(ethers.formatEther(bal));
-    } catch (error) {
-      console.error(error);
-      showToast("TX REVERTED", error.reason || error.message || "Failed to create campaign.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Invest/Contribute to a campaign
   const handleInvest = async (campaignId) => {
@@ -175,10 +135,7 @@ function App() {
 
     try {
       setLoading(true);
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, CrowdfundingContract.abi, signer);
-
+      const contract = await getWriteContract();
       const amountInWei = ethers.parseEther(amount);
 
       const tx = await contract.investasi(campaignId, { value: amountInWei });
@@ -193,8 +150,8 @@ function App() {
       
       // Refresh
       loadCampaigns();
-      const bal = await provider.getBalance(account);
-      setBalance(ethers.formatEther(bal));
+      const details = await getWeb3Details();
+      setBalance(details.balance);
     } catch (error) {
       console.error(error);
       showToast("TX REVERTED", error.reason || error.message || "Transaction reverted.", "error");
@@ -212,10 +169,7 @@ function App() {
 
     try {
       setLoading(true);
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, CrowdfundingContract.abi, signer);
-
+      const contract = await getWriteContract();
       const tx = await contract.tarikDana(campaignId);
       showToast("TX SUBMITTED", "Broadcasting withdrawal instruction...", "info");
       
@@ -224,8 +178,8 @@ function App() {
       showToast("LEDGER UPDATED", "Funds transferred to campaign owner account.", "success");
       
       loadCampaigns();
-      const bal = await provider.getBalance(account);
-      setBalance(ethers.formatEther(bal));
+      const details = await getWeb3Details();
+      setBalance(details.balance);
     } catch (error) {
       console.error(error);
       showToast("TX REVERTED", error.reason || error.message || "Transaction reverted.", "error");
@@ -255,20 +209,30 @@ function App() {
           <span className="logo-text">CHAINFUND</span>
         </div>
 
-        {account ? (
-          <div className="wallet-badge">
-            <span className="wallet-indicator"></span>
-            <span>{formatAddress(account)}</span>
-            <span style={{ color: "var(--text-muted)", marginLeft: "0.25rem" }}>
-              [{parseFloat(balance).toFixed(4)} ETH]
-            </span>
-          </div>
-        ) : (
-          <button className="btn-connect" onClick={connectWallet} disabled={loading}>
-            {loading ? <div className="loading-spinner"></div> : "[ CONNECT WALLET ]"}
-          </button>
-        )}
+        <div className="wallet-status-panel">
+          {account ? (
+            <div className="wallet-status-connected">
+              <span className="status-label">STATUS:</span>
+              <span className="status-tag tag-connected">CONNECTED</span>
+              <span className="divider">//</span>
+              <span className="address-label">ACCOUNT:</span>
+              <span className="address-value" title={account}>{formatAddress(account)}</span>
+              <span className="divider">//</span>
+              <span className="balance-value">[{parseFloat(balance).toFixed(4)} ETH]</span>
+            </div>
+          ) : (
+            <div className="wallet-status-disconnected">
+              <span className="status-label">STATUS:</span>
+              <span className="status-tag tag-disconnected">DISCONNECTED</span>
+              <span className="divider">//</span>
+              <button className="btn-connect" onClick={connectWallet} disabled={loading}>
+                {loading ? <div className="loading-spinner" style={{ display: "inline-block" }}></div> : "CONNECT WALLET"}
+              </button>
+            </div>
+          )}
+        </div>
       </header>
+
 
       {/* Ledger Statistics Banner */}
       <section className="stats-banner">
@@ -417,69 +381,11 @@ function App() {
 
         {/* Right Side: Ledger Registry Inputs */}
         <section className="panel-right">
-          <h2 className="panel-title">
-            <span className="number">REG</span> INITIALIZE ENTRY
-          </h2>
-          
-          <form onSubmit={handleCreateCampaign}>
-            <div className="form-group">
-              <label className="form-label">ENTRY IDENTIFIER / TITLE</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="PROPOSAL IDENTIFIER"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                disabled={loading}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">LEDGER MEMORANDUM / DESCRIPTION</label>
-              <textarea 
-                className="form-input" 
-                placeholder="DETAILED INSTRUCTIONS AND PARAMETERS..."
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                disabled={loading}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">FUNDING LIMIT (ETH)</label>
-              <input 
-                type="number" 
-                step="0.01" 
-                min="0.001" 
-                className="form-input" 
-                placeholder="1.00"
-                value={newTarget}
-                onChange={(e) => setNewTarget(e.target.value)}
-                disabled={loading}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">REGISTRY LIFESPAN (DAYS)</label>
-              <input 
-                type="number" 
-                min="1" 
-                className="form-input" 
-                placeholder="30"
-                value={newDuration}
-                onChange={(e) => setNewDuration(e.target.value)}
-                disabled={loading}
-                required
-              />
-            </div>
-
-            <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? <div className="loading-spinner"></div> : "PUBLISH ENTRY TO LEDGER"}
-            </button>
-          </form>
+          <CreateCampaign 
+            account={account} 
+            showToast={showToast} 
+            onSuccess={handleSuccess} 
+          />
         </section>
       </main>
 

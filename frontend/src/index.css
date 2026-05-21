@@ -82,12 +82,12 @@ header {
 /* Wallet button */
 .btn-connect {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 700;
   background: transparent;
   color: var(--text-main);
   border: var(--border-thin);
-  padding: 0.5rem 1rem;
+  padding: 0.25rem 0.6rem;
   cursor: pointer;
   text-transform: uppercase;
   transition: var(--transition-flat);
@@ -98,23 +98,66 @@ header {
   color: var(--bg-page);
 }
 
-.wallet-badge {
+.wallet-status-panel {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
-  border: var(--border-thin);
-  padding: 0.5rem 1rem;
-  background-color: var(--bg-page);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
-.wallet-indicator {
-  width: 7px;
-  height: 7px;
-  background-color: var(--accent-green);
+.wallet-status-connected,
+.wallet-status-disconnected {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
+
+.status-label, .address-label {
+  color: var(--text-muted);
+}
+
+.status-tag {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  border: var(--border-thin);
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.tag-connected {
+  background-color: #e2f0d9;
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.tag-disconnected {
+  background-color: #fce4d6;
+  color: var(--accent-rust);
+  border-color: var(--accent-rust);
+}
+
+.divider {
+  color: var(--text-dim);
+}
+
+.address-value {
+  color: var(--text-main);
+  text-decoration: underline;
+}
+
+.balance-value {
+  color: var(--accent-blue);
+}
+
+/* Ensure navbar fits nicely on smaller viewports */
+@media (max-width: 600px) {
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+}
+
 
 /* Statistics Ledger Dashboard */
 .stats-banner {
