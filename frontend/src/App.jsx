@@ -6,6 +6,8 @@ import {
   getWeb3Details 
 } from "./contracts/contract";
 import CreateCampaign from "./components/CreateCampaign";
+import WithdrawPanel from "./components/WithdrawPanel";
+import MyPortfolio from "./components/MyPortfolio";
 
 function App() {
   const [account, setAccount] = useState("");
@@ -13,6 +15,9 @@ function App() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+
+  // Tab Navigation State: "ledger" | "portfolio" | "founder"
+  const [currentTab, setCurrentTab] = useState("ledger");
 
   // Investment State per campaign
   const [investAmounts, setInvestAmounts] = useState({});
@@ -42,7 +47,6 @@ function App() {
     }
     try {
       setLoading(true);
-      // Request account access if needed
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
       if (accounts.length > 0) {
         const details = await getWeb3Details();
@@ -87,6 +91,7 @@ function App() {
     loadCampaigns();
     const details = await getWeb3Details();
     setBalance(details.balance);
+    setCurrentTab("ledger"); // Kembalikan ke ledger view setelah submit sukses
   };
 
   // Handle account & network changes
@@ -144,11 +149,7 @@ function App() {
       await tx.wait();
       
       showToast("LEDGER UPDATED", "Investment contribution finalized.", "success");
-      
-      // Clear amount
       setInvestAmounts(prev => ({ ...prev, [campaignId]: "" }));
-      
-      // Refresh
       loadCampaigns();
       const details = await getWeb3Details();
       setBalance(details.balance);
@@ -233,6 +234,42 @@ function App() {
         </div>
       </header>
 
+      {/* Control Navigation Menu - Menggunakan Style Khas Tim */}
+      <nav style={{ display: "flex", borderBottom: "2px solid #121212", backgroundColor: "#fafaf7" }}>
+        <button 
+          onClick={() => setCurrentTab("ledger")}
+          style={{
+            flex: 1, padding: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: "700",
+            background: currentTab === "ledger" ? "#121212" : "transparent",
+            color: currentTab === "ledger" ? "#f8f7f4" : "#121212",
+            border: "none", borderRight: "1px solid #121212", cursor: "pointer", textTransform: "uppercase"
+          }}
+        >
+          [01 // ACTIVE LEDGER]
+        </button>
+        <button 
+          onClick={() => setCurrentTab("portfolio")}
+          style={{
+            flex: 1, padding: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: "700",
+            background: currentTab === "portfolio" ? "#121212" : "transparent",
+            color: currentTab === "portfolio" ? "#f8f7f4" : "#121212",
+            border: "none", borderRight: "1px solid #121212", cursor: "pointer", textTransform: "uppercase"
+          }}
+        >
+          [02 // INVESTOR PORTFOLIO]
+        </button>
+        <button 
+          onClick={() => setCurrentTab("founder")}
+          style={{
+            flex: 1, padding: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: "700",
+            background: currentTab === "founder" ? "#121212" : "transparent",
+            color: currentTab === "founder" ? "#f8f7f4" : "#121212",
+            border: "none", cursor: "pointer", textTransform: "uppercase"
+          }}
+        >
+          [03 // FOUNDER CONTROL PANEL]
+        </button>
+      </nav>
 
       {/* Ledger Statistics Banner */}
       <section className="stats-banner">
@@ -249,137 +286,124 @@ function App() {
         <div className="stat-card">
           <span className="stat-label">03 / CUMULATIVE VALUE</span>
           <span className="stat-value">
-            {campaigns.reduce((acc, c) => acc + parseFloat(c.danaTerkumpul), 0).toFixed(3)} ETH
+            {campaigns.reduce((acc, c) => acc + parseFloat(c.danaTerkumpul), 0).toFixed(4)} ETH
           </span>
         </div>
       </section>
 
       {/* Main layout */}
       <main className="main-layout">
-        {/* Left Side: Ledger/Active Entries */}
+        {/* Left Side: Dynamic Workspace Rendering */}
         <section className="panel-left">
-          <h2 className="panel-title">
-            <span className="number">INDEX</span> LEDGER ENTRIES
-          </h2>
           
-          {campaigns.length === 0 ? (
-            <div className="empty-state">
-              <h3>NO ENTRIES DETECTED</h3>
-              <p>THE LEDGER IS EMPTY. INITIATE A NEW CROWDFUNDING ENTRY FROM THE CONTROL PANEL TO BEGIN RECORDING METRICS.</p>
-            </div>
-          ) : (
-            <div className="campaign-grid">
-              {campaigns.map((c, index) => {
-                const isDeadlinePassed = c.deadline * 1000 < Date.now();
-                const isCompleted = parseFloat(c.danaTerkumpul) >= parseFloat(c.targetDana);
-                const progressPercentage = Math.min(
-                  ((parseFloat(c.danaTerkumpul) / parseFloat(c.targetDana)) * 100),
-                  100
-                );
-                const dateObj = new Date(c.deadline * 1000);
-                const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
+          {currentTab === "ledger" && (
+            <>
+              <h2 className="panel-title"><span className="number">INDEX</span> LEDGER ENTRIES</h2>
+              {campaigns.length === 0 ? (
+                <div className="empty-state">
+                  <h3>NO ENTRIES DETECTED</h3>
+                  <p>THE LEDGER IS EMPTY. INITIATE A NEW CROWDFUNDING ENTRY FROM THE CONTROL PANEL TO BEGIN RECORDING METRICS.</p>
+                </div>
+              ) : (
+                <div className="campaign-grid">
+                  {campaigns.map((c, index) => {
+                    const isDeadlinePassed = c.deadline * 1000 < Date.now();
+                    const isCompleted = parseFloat(c.danaTerkumpul) >= parseFloat(c.targetDana);
+                    const progressPercentage = Math.min(((parseFloat(c.danaTerkumpul) / parseFloat(c.targetDana)) * 100), 100);
+                    const dateObj = new Date(c.deadline * 1000);
+                    const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
 
-                return (
-                  <div className="campaign-card" key={c.id}>
-                    <div className="campaign-meta-line">
-                      <span className="campaign-index">{formatIndex(index)}</span>
-                      <span className={`campaign-status ${c.aktif && !isDeadlinePassed ? "status-active" : "status-closed"}`}>
-                        {c.aktif && !isDeadlinePassed ? "active" : "closed"}
-                      </span>
-                    </div>
-
-                    <div className="campaign-title-row">
-                      <h3 className="campaign-title">{c.judul}</h3>
-                    </div>
-
-                    <p className="campaign-desc">{c.deskripsi}</p>
-
-                    <div className="owner-row">
-                      <span className="label">ORIGIN:</span>
-                      <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
-                    </div>
-
-                    {/* Monospace Progress */}
-                    <div className="progress-container">
-                      <div className="progress-text">
-                        <span>LEDGER METRIC PROGRESS</span>
-                        <span>{progressPercentage.toFixed(1)}%</span>
-                      </div>
-                      <div className="progress-track">
-                        <div 
-                          className="progress-fill" 
-                          style={{ width: `${progressPercentage}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* Metadata Table */}
-                    <div className="ledger-details">
-                      <div className="ledger-cell">
-                        <span className="ledger-cell-label">COLLECTED VALUE</span>
-                        <span className="ledger-cell-value">{c.danaTerkumpul} ETH</span>
-                      </div>
-                      <div className="ledger-cell">
-                        <span className="ledger-cell-label">TARGET REQUIREMENT</span>
-                        <span className="ledger-cell-value">{c.targetDana} ETH</span>
-                      </div>
-                      <div className="ledger-cell">
-                        <span className="ledger-cell-label">LEDGER CLOSURE</span>
-                        <span className="ledger-cell-value">{dateObj.toLocaleDateString()}</span>
-                      </div>
-                      <div className="ledger-cell">
-                        <span className="ledger-cell-label">STATUS CODE</span>
-                        <span className="ledger-cell-value">{c.aktif ? "0x01 / ACTIVE" : "0x00 / TERMINATED"}</span>
-                      </div>
-                    </div>
-
-                    {/* Owner Withdrawal Notification / Button */}
-                    {isUserOwner && c.aktif && isCompleted && (
-                      <div className="action-box">
-                        <div className="action-box-text">TARGET CRITERIA MET. UNLOCKED FOR SETTLEMENT.</div>
-                        <button 
-                          className="btn-action" 
-                          onClick={() => handleWithdraw(c.id)}
-                          disabled={loading}
-                        >
-                          {loading ? "PENDING..." : "SETTLE FUNDS"}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Investment Forms */}
-                    {c.aktif && !isDeadlinePassed && (
-                      <div className="contribution-row">
-                        <div className="input-mono-wrapper">
-                          <input 
-                            type="number" 
-                            step="0.01" 
-                            min="0"
-                            placeholder="0.10" 
-                            className="form-input"
-                            value={investAmounts[c.id] || ""}
-                            onChange={(e) => handleInvestAmountChange(c.id, e.target.value)}
-                            disabled={loading}
-                          />
-                          <span className="input-suffix">ETH</span>
+                    return (
+                      <div className="campaign-card" key={c.id}>
+                        <div className="campaign-meta-line">
+                          <span className="campaign-index">{formatIndex(index)}</span>
+                          <span className={`campaign-status ${c.aktif && !isDeadlinePassed ? "status-active" : "status-closed"}`}>
+                            {c.aktif && !isDeadlinePassed ? "active" : "closed"}
+                          </span>
                         </div>
-                        <button 
-                          className="btn-secondary"
-                          onClick={() => handleInvest(c.id)}
-                          disabled={loading}
-                        >
-                          CONTRIBUTE
-                        </button>
+                        <div className="campaign-title-row">
+                          <h3 className="campaign-title">{c.judul}</h3>
+                        </div>
+                        <p className="campaign-desc">{c.deskripsi}</p>
+                        <div className="owner-row">
+                          <span className="label">ORIGIN:</span>
+                          <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
+                        </div>
+                        <div className="progress-container">
+                          <div className="progress-text">
+                            <span>LEDGER METRIC PROGRESS</span>
+                            <span>{progressPercentage.toFixed(1)}%</span>
+                          </div>
+                          <div className="progress-track">
+                            <div className="progress-fill" style={{ width: `${progressPercentage}%` }}></div>
+                          </div>
+                        </div>
+                        <div className="ledger-details">
+                          <div className="ledger-cell">
+                            <span className="ledger-cell-label">COLLECTED VALUE</span>
+                            <span className="ledger-cell-value">{c.danaTerkumpul} ETH</span>
+                          </div>
+                          <div className="ledger-cell">
+                            <span className="ledger-cell-label">TARGET REQUIREMENT</span>
+                            <span className="ledger-cell-value">{c.targetDana} ETH</span>
+                          </div>
+                          <div className="ledger-cell">
+                            <span className="ledger-cell-label">LEDGER CLOSURE</span>
+                            <span className="ledger-cell-value">{dateObj.toLocaleDateString()}</span>
+                          </div>
+                          <div className="ledger-cell">
+                            <span className="ledger-cell-label">STATUS CODE</span>
+                            <span className="ledger-cell-value">{c.aktif ? "0x01 / ACTIVE" : "0x00 / TERMINATED"}</span>
+                          </div>
+                        </div>
+
+                        {/* Bentuk investasi kontribusi */}
+                        {c.aktif && !isDeadlinePassed && (
+                          <div className="contribution-row">
+                            <div className="input-mono-wrapper">
+                              <input 
+                                type="number" step="0.01" min="0" placeholder="0.10" className="form-input"
+                                value={investAmounts[c.id] || ""}
+                                onChange={(e) => handleInvestAmountChange(c.id, e.target.value)}
+                                disabled={loading}
+                              />
+                              <span className="input-suffix">ETH</span>
+                            </div>
+                            <button className="btn-secondary" onClick={() => handleInvest(c.id)} disabled={loading}>
+                              CONTRIBUTE
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
+
+          {currentTab === "portfolio" && (
+            <>
+              <h2 className="panel-title"><span className="number">PORTFOLIO</span> INVESTOR HISTORY</h2>
+              <MyPortfolio account={account} />
+            </>
+          )}
+
+          {currentTab === "founder" && (
+            <>
+              <h2 className="panel-title"><span className="number">FOUNDER</span> MANAGEMENT STRIP</h2>
+              <WithdrawPanel 
+                account={account} 
+                campaigns={campaigns} 
+                handleWithdraw={handleWithdraw} 
+                loading={loading} 
+              />
+            </>
+          )}
+
         </section>
 
-        {/* Right Side: Ledger Registry Inputs */}
+        {/* Right Side: Registry Input Tetap Muncul Untuk Kemudahan Akses Operator */}
         <section className="panel-right">
           <CreateCampaign 
             account={account} 
