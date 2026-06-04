@@ -30,18 +30,17 @@ function WithdrawPanel({ account, campaigns, handleWithdraw, loading }) {
       ) : (
         <div className="campaign-grid">
           {myCampaigns.map((c) => {
-            const isDeadlinePassed = c.deadline * 1000 < Date.now();
-            const hasFunds = parseFloat(c.danaTerkumpul) > 0;
-            
-            // Aturan diskusi: Bisa ditarik jika masih aktif DAN deadline sudah lewat
-            const canSettle = c.aktif && isDeadlinePassed && hasFunds;
+            // Berdasarkan arsitektur baru: Hanya bisa ditarik jika status FUNDED (1)
+            const isFunded = c.statusInt === 1; 
+            const isCompleted = c.statusInt === 3;
+            const isFailed = c.statusInt === 2 || (c.statusInt === 0 && c.deadline * 1000 < Date.now());
 
             return (
               <div className="campaign-card" key={c.id} style={{ border: "1px solid #121212", padding: "1.25rem", backgroundColor: "#ffffff" }}>
                 <div className="campaign-meta-line">
                   <span className="campaign-index">CAMPAIGN REGISTERED ID: #{String(c.id + 1).padStart(3, "0")}</span>
-                  <span className={`campaign-status ${c.aktif ? "status-active" : "status-closed"}`}>
-                    {c.aktif ? "active / locked" : "liquidated"}
+                  <span className={`campaign-status status-${c.statusLabel.toLowerCase()}`}>
+                    {c.statusLabel}
                   </span>
                 </div>
 
@@ -62,32 +61,31 @@ function WithdrawPanel({ account, campaigns, handleWithdraw, loading }) {
                   </div>
                 </div>
 
-                {/* Logika Kontrol Tombol Penarikan Dana Parsial Pasca Deadline */}
-                {c.aktif && (
-                  <div className="action-box" style={{ 
-                    marginTop: "0.5rem", 
-                    borderColor: canSettle ? "var(--accent-green)" : "var(--text-dim)", 
-                    backgroundColor: canSettle ? "#f1f8f3" : "#fafaf7" 
-                  }}>
-                    <div className="action-box-text" style={{ color: canSettle ? "var(--accent-green)" : "var(--text-muted)" }}>
-                      {!isDeadlinePassed 
-                        ? "STATUS: WAITING FOR DEADLINE EXSPIRATION TO UNLOCK LIQUIDATION PROTOCOL." 
-                        : !hasFunds 
-                        ? "STATUS: DEADLINE PASSED BUT ZERO CAPITAL TO LIQUIDATE."
-                        : "CRITERIA MET. UNLOCKED FOR SETTLEMENT PROTOCOL."}
-                    </div>
-                    
-                    {canSettle && (
-                      <button 
-                        className="btn-action" 
-                        onClick={() => handleWithdraw(c.id)}
-                        disabled={loading}
-                      >
-                        {loading ? "SETTLING..." : "SETTLE FUNDS"}
-                      </button>
-                    )}
+                <div className="action-box" style={{ 
+                  marginTop: "0.5rem", 
+                  borderColor: isFunded ? "var(--accent-green)" : "var(--text-dim)", 
+                  backgroundColor: isFunded ? "#f1f8f3" : "#fafaf7" 
+                }}>
+                  <div className="action-box-text" style={{ color: isFunded ? "var(--accent-green)" : "var(--text-muted)" }}>
+                    {isFunded 
+                      ? "CRITERIA MET. UNLOCKED FOR SETTLEMENT PROTOCOL." 
+                      : isCompleted
+                      ? "STATUS: FUNDS ALREADY SETTLED AND LIQUIDATED."
+                      : isFailed
+                      ? "STATUS: CAMPAIGN FAILED. ASSETS ARE RESERVED FOR INVESTOR REFUNDS."
+                      : "STATUS: WAITING FOR FUNDING TARGET TO BE REACHED."}
                   </div>
-                )}
+                  
+                  {isFunded && (
+                    <button 
+                      className="btn-action" 
+                      onClick={() => handleWithdraw(c.id)}
+                      disabled={loading}
+                    >
+                      {loading ? "SETTLING..." : "SETTLE FUNDS"}
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

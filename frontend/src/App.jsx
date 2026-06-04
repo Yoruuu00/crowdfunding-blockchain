@@ -8,6 +8,7 @@ import {
 import CreateCampaign from "./components/CreateCampaign";
 import WithdrawPanel from "./components/WithdrawPanel";
 import MyPortfolio from "./components/MyPortfolio";
+import CampaignUpdates from "./components/CampaignUpdates";
 
 function App() {
   const [account, setAccount] = useState("");
@@ -16,30 +17,30 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
-  // Tab Navigation State: "ledger" | "portfolio" | "founder"
   const [currentTab, setCurrentTab] = useState("ledger");
-
-  // Investment State per campaign
   const [investAmounts, setInvestAmounts] = useState({});
 
-  // Show status toasts
+  // Filter & Search States
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterCategory, setFilterCategory] = useState("ALL");
+  const [sortOption, setSortOption] = useState("NEWEST");
+
+  const STATUS_MAP = ["ACTIVE", "FUNDED", "FAILED", "COMPLETED", "CANCELED"];
+
   const showToast = useCallback((title, msg, type = "info") => {
     setToast({ title, msg, type });
     setTimeout(() => setToast(null), 5000);
   }, []);
 
-  // Format address for UI
   const formatAddress = (addr) => {
     if (!addr) return "";
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
   };
 
-  // Format index string (e.g. 1 -> #001)
   const formatIndex = (index) => {
     return `#${String(index + 1).padStart(3, "0")}`;
   };
 
-  // Connect MetaMask Wallet
   const connectWallet = async () => {
     if (!window.ethereum) {
       showToast("METAMASK NOT FOUND", "Please install MetaMask extension in your browser.", "error");
@@ -63,38 +64,49 @@ function App() {
     }
   };
 
-  // Load campaigns from contract
   const loadCampaigns = useCallback(async () => {
     try {
       const contract = getReadOnlyContract();
-      const list = await contract.semuaCampaign();
+      const totalCampaigns = await contract.jumlahCampaign();
       
-      const formattedList = list.map((c) => ({
-        id: Number(c.id),
-        judul: c.judul,
-        deskripsi: c.deskripsi,
-        pemilik: c.pemilik,
-        targetDana: ethers.formatEther(c.targetDana),
-        danaTerkumpul: ethers.formatEther(c.danaTerkumpul),
-        deadline: Number(c.deadline),
-        aktif: c.aktif,
-      }));
-      
-      setCampaigns(formattedList);
+      if (totalCampaigns > 0) {
+        const list = await contract.getCampaigns(0, totalCampaigns);
+        
+        // Membutuhkan Promise.all karena kita memanggil kontrak lagi untuk cek reputasi tiap pemilik
+        const formattedList = await Promise.all(list.map(async (c) => {
+          const reputasi = await contract.reputasiKreator(c.pemilik);
+          
+          return {
+            id: Number(c.id),
+            judul: c.judul,
+            deskripsi: c.deskripsi,
+            kategoriId: Number(c.kategoriId),
+            pemilik: c.pemilik,
+            targetDana: ethers.formatEther(c.targetDana),
+            danaTerkumpul: ethers.formatEther(c.danaTerkumpul),
+            deadline: Number(c.deadline),
+            statusInt: Number(c.status), 
+            statusLabel: STATUS_MAP[Number(c.status)],
+            reputasi: Number(reputasi)
+          };
+        }));
+        
+        setCampaigns(formattedList);
+      } else {
+        setCampaigns([]);
+      }
     } catch (error) {
       console.error("Error loading campaigns:", error);
     }
   }, []);
 
-  // Handle successful campaign creation
   const handleSuccess = async () => {
     loadCampaigns();
     const details = await getWeb3Details();
     setBalance(details.balance);
-    setCurrentTab("ledger"); // Kembalikan ke ledger view setelah submit sukses
+    setCurrentTab("ledger"); 
   };
 
-  // Handle account & network changes
   useEffect(() => {
     const initWeb3 = async () => {
       const details = await getWeb3Details();
@@ -116,22 +128,18 @@ function App() {
           setBalance("0");
         }
       });
-
       window.ethereum.on("chainChanged", () => {
         window.location.reload();
       });
     }
-
     loadCampaigns();
   }, [loadCampaigns]);
 
-  // Invest/Contribute to a campaign
   const handleInvest = async (campaignId) => {
     if (!account) {
       showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
       return;
     }
-
     const amount = investAmounts[campaignId];
     if (!amount || parseFloat(amount) <= 0) {
       showToast("INVALID VALUE", "Please specify a positive ETH value.", "error");
@@ -145,7 +153,6 @@ function App() {
 
       const tx = await contract.investasi(campaignId, { value: amountInWei });
       showToast("TX SUBMITTED", "Broadcasting asset contribution...", "info");
-      
       await tx.wait();
       
       showToast("LEDGER UPDATED", "Investment contribution finalized.", "success");
@@ -161,23 +168,19 @@ function App() {
     }
   };
 
-  // Withdraw funds from a completed campaign
   const handleWithdraw = async (campaignId) => {
     if (!account) {
       showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
       return;
     }
-
     try {
       setLoading(true);
       const contract = await getWriteContract();
       const tx = await contract.tarikDana(campaignId);
       showToast("TX SUBMITTED", "Broadcasting withdrawal instruction...", "info");
-      
       await tx.wait();
       
       showToast("LEDGER UPDATED", "Funds transferred to campaign owner account.", "success");
-      
       loadCampaigns();
       const details = await getWeb3Details();
       setBalance(details.balance);
@@ -193,9 +196,45 @@ function App() {
     setInvestAmounts(prev => ({ ...prev, [campaignId]: val }));
   };
 
+  // --- LOGIKA FILTER, PENCARIAN, DAN PENGURUTAN DATA ---
+  const getProcessedCampaigns = () => {
+    let processed = [...campaigns];
+
+    if (filterCategory !== "ALL") {
+      processed = processed.filter(c => c.kategoriId.toString() === filterCategory);
+    }
+
+    if (searchTerm.trim() !== "") {
+      processed = processed.filter(c => 
+        c.judul.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    switch (sortOption) {
+      case "NEWEST":
+        processed.sort((a, b) => b.id - a.id);
+        break;
+      case "TARGET_DESC":
+        processed.sort((a, b) => parseFloat(b.targetDana) - parseFloat(a.targetDana));
+        break;
+      case "PROGRESS_DESC":
+        processed.sort((a, b) => {
+          const progA = parseFloat(a.danaTerkumpul) / parseFloat(a.targetDana);
+          const progB = parseFloat(b.danaTerkumpul) / parseFloat(b.targetDana);
+          return progB - progA;
+        });
+        break;
+      default:
+        break;
+    }
+
+    return processed;
+  };
+
+  const displayCampaigns = getProcessedCampaigns();
+
   return (
     <div className="grid-container">
-      {/* Toast Alert */}
       {toast && (
         <div className={`alert-toast toast-${toast.type}`}>
           <div className="toast-title">{toast.title}</div>
@@ -203,7 +242,6 @@ function App() {
         </div>
       )}
 
-      {/* Header */}
       <header>
         <div className="logo-section">
           <span className="logo-icon">CF</span>
@@ -234,7 +272,6 @@ function App() {
         </div>
       </header>
 
-      {/* Control Navigation Menu - Menggunakan Style Khas Tim */}
       <nav style={{ display: "flex", borderBottom: "2px solid #121212", backgroundColor: "#fafaf7" }}>
         <button 
           onClick={() => setCurrentTab("ledger")}
@@ -271,7 +308,6 @@ function App() {
         </button>
       </nav>
 
-      {/* Ledger Statistics Banner */}
       <section className="stats-banner">
         <div className="stat-card">
           <span className="stat-label">01 / TOTAL RECORDED</span>
@@ -280,7 +316,7 @@ function App() {
         <div className="stat-card">
           <span className="stat-label">02 / ACTIVE CAMPAIGNS</span>
           <span className="stat-value">
-            {campaigns.filter((c) => c.aktif && c.deadline * 1000 > Date.now()).length}
+            {campaigns.filter((c) => c.statusInt === 0).length}
           </span>
         </div>
         <div className="stat-card">
@@ -291,43 +327,82 @@ function App() {
         </div>
       </section>
 
-      {/* Main layout */}
       <main className="main-layout">
-        {/* Left Side: Dynamic Workspace Rendering */}
         <section className="panel-left">
           
           {currentTab === "ledger" && (
             <>
-              <h2 className="panel-title"><span className="number">INDEX</span> LEDGER ENTRIES</h2>
-              {campaigns.length === 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "1rem" }}>
+                <h2 className="panel-title" style={{ margin: 0 }}><span className="number">INDEX</span> LEDGER ENTRIES</h2>
+                
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <input 
+                    type="text" 
+                    placeholder="SEARCH TITLE..." 
+                    className="form-input"
+                    style={{ width: "200px", margin: 0, padding: "0.5rem" }}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <select 
+                    className="form-input" 
+                    style={{ margin: 0, padding: "0.5rem" }}
+                    value={filterCategory}
+                    onChange={(e) => setFilterCategory(e.target.value)}
+                  >
+                    <option value="ALL">ALL CATEGORIES</option>
+                    <option value="0">TECHNOLOGY & IT</option>
+                    <option value="1">SOCIAL & HUMANITY</option>
+                    <option value="2">ENVIRONMENT</option>
+                    <option value="3">BUSINESS & STARTUP</option>
+                  </select>
+                  <select 
+                    className="form-input" 
+                    style={{ margin: 0, padding: "0.5rem" }}
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value)}
+                  >
+                    <option value="NEWEST">SORT: NEWEST</option>
+                    <option value="TARGET_DESC">SORT: HIGHEST TARGET</option>
+                    <option value="PROGRESS_DESC">SORT: HIGHEST PROGRESS</option>
+                  </select>
+                </div>
+              </div>
+
+              {displayCampaigns.length === 0 ? (
                 <div className="empty-state">
-                  <h3>NO ENTRIES DETECTED</h3>
-                  <p>THE LEDGER IS EMPTY. INITIATE A NEW CROWDFUNDING ENTRY FROM THE CONTROL PANEL TO BEGIN RECORDING METRICS.</p>
+                  <h3>NO ENTRIES MATCHING CRITERIA</h3>
+                  <p>THE LEDGER QUERY RETURNED ZERO RESULTS. ADJUST YOUR SEARCH OR FILTER PARAMETERS.</p>
                 </div>
               ) : (
                 <div className="campaign-grid">
-                  {campaigns.map((c, index) => {
-                    const isDeadlinePassed = c.deadline * 1000 < Date.now();
-                    const isCompleted = parseFloat(c.danaTerkumpul) >= parseFloat(c.targetDana);
+                  {displayCampaigns.map((c, index) => {
+                    const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
                     const progressPercentage = Math.min(((parseFloat(c.danaTerkumpul) / parseFloat(c.targetDana)) * 100), 100);
                     const dateObj = new Date(c.deadline * 1000);
-                    const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
+                    const isActive = c.statusInt === 0;
 
                     return (
                       <div className="campaign-card" key={c.id}>
                         <div className="campaign-meta-line">
-                          <span className="campaign-index">{formatIndex(index)}</span>
-                          <span className={`campaign-status ${c.aktif && !isDeadlinePassed ? "status-active" : "status-closed"}`}>
-                            {c.aktif && !isDeadlinePassed ? "active" : "closed"}
+                          <span className="campaign-index">{formatIndex(c.id)}</span>
+                          <span className={`campaign-status status-${c.statusLabel.toLowerCase()}`}>
+                            {c.statusLabel}
                           </span>
                         </div>
                         <div className="campaign-title-row">
                           <h3 className="campaign-title">{c.judul}</h3>
                         </div>
                         <p className="campaign-desc">{c.deskripsi}</p>
-                        <div className="owner-row">
-                          <span className="label">ORIGIN:</span>
-                          <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
+                        <div className="owner-row" style={{ display: "flex", justifyContent: "space-between" }}>
+                          <div>
+                            <span className="label">ORIGIN:</span>
+                            <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
+                          </div>
+                          {/* Indikator Reputasi Kreator */}
+                          <div style={{ color: c.reputasi > 0 ? "var(--accent-green)" : "var(--text-dim)", fontWeight: "bold" }}>
+                            REPUTATION: {c.reputasi} SUCCESSFUL COMPLETIONS
+                          </div>
                         </div>
                         <div className="progress-container">
                           <div className="progress-text">
@@ -353,12 +428,11 @@ function App() {
                           </div>
                           <div className="ledger-cell">
                             <span className="ledger-cell-label">STATUS CODE</span>
-                            <span className="ledger-cell-value">{c.aktif ? "0x01 / ACTIVE" : "0x00 / TERMINATED"}</span>
+                            <span className="ledger-cell-value">0x0{c.statusInt} / {c.statusLabel}</span>
                           </div>
                         </div>
 
-                        {/* Bentuk investasi kontribusi */}
-                        {c.aktif && !isDeadlinePassed && (
+                        {isActive && (
                           <div className="contribution-row">
                             <div className="input-mono-wrapper">
                               <input 
@@ -374,6 +448,14 @@ function App() {
                             </button>
                           </div>
                         )}
+
+                        {/* Implementasi Campaign Updates Panel */}
+                        <CampaignUpdates 
+                          campaignId={c.id} 
+                          isOwner={isUserOwner} 
+                          account={account} 
+                          showToast={showToast} 
+                        />
                       </div>
                     );
                   })}
@@ -385,7 +467,7 @@ function App() {
           {currentTab === "portfolio" && (
             <>
               <h2 className="panel-title"><span className="number">PORTFOLIO</span> INVESTOR HISTORY</h2>
-              <MyPortfolio account={account} />
+              <MyPortfolio account={account} campaigns={campaigns} showToast={showToast} loadCampaigns={loadCampaigns} />
             </>
           )}
 
@@ -403,7 +485,6 @@ function App() {
 
         </section>
 
-        {/* Right Side: Registry Input Tetap Muncul Untuk Kemudahan Akses Operator */}
         <section className="panel-right">
           <CreateCampaign 
             account={account} 
@@ -413,7 +494,6 @@ function App() {
         </section>
       </main>
 
-      {/* Bottom stamp */}
       <footer className="legal-notice">
         CHAINFUND DECENTRALIZED PROTOCOL // VERSION 1.0.0 // LOCAL HOST NETWORK
       </footer>
