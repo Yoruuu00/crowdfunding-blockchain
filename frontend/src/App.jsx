@@ -9,6 +9,8 @@ import CreateCampaign from "./components/CreateCampaign";
 import WithdrawPanel from "./components/WithdrawPanel";
 import MyPortfolio from "./components/MyPortfolio";
 
+const REFUND_WINDOW_SECONDS = 7200; 
+
 function App() {
   const [account, setAccount] = useState("");
   const [balance, setBalance] = useState("0");
@@ -22,10 +24,24 @@ function App() {
   // Investment State per campaign
   const [investAmounts, setInvestAmounts] = useState({});
 
+  // Refund: simpan waktu investasi per campaign per user
+  const [investTimestamps, setInvestTimestamps] = useState({});
+
+  // FIX 2: State waktu sekarang — update setiap detik untuk countdown dinamis
+  const [now, setNow] = useState(Date.now());
+
   // Show status toasts
   const showToast = useCallback((title, msg, type = "info") => {
     setToast({ title, msg, type });
     setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  // FIX 2: Timer interval — update 'now' setiap 1 detik
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval); // cleanup saat component unmount
   }, []);
 
   // Format address for UI
@@ -86,12 +102,28 @@ function App() {
     }
   }, []);
 
+  // Load waktu investasi per campaign untuk fitur refund
+  const loadInvestTimestamps = useCallback(async () => {
+    if (!account || campaigns.length === 0) return;
+    try {
+      const contract = getReadOnlyContract();
+      const timestamps = {};
+      for (const c of campaigns) {
+        const ts = await contract.waktuInvestasi(c.id, account);
+        timestamps[c.id] = Number(ts);
+      }
+      setInvestTimestamps(timestamps);
+    } catch (error) {
+      console.error("Error loading invest timestamps:", error);
+    }
+  }, [account, campaigns]);
+
   // Handle successful campaign creation
   const handleSuccess = async () => {
     loadCampaigns();
     const details = await getWeb3Details();
     setBalance(details.balance);
-    setCurrentTab("ledger"); // Kembalikan ke ledger view setelah submit sukses
+    setCurrentTab("ledger");
   };
 
   // Handle account & network changes
@@ -125,6 +157,13 @@ function App() {
     loadCampaigns();
   }, [loadCampaigns]);
 
+  // Auto-load timestamps setiap kali campaigns atau account berubah
+  useEffect(() => {
+    if (account && campaigns.length > 0) {
+      loadInvestTimestamps();
+    }
+  }, [account, campaigns, loadInvestTimestamps]);
+
   // Invest/Contribute to a campaign
   const handleInvest = async (campaignId) => {
     if (!account) {
@@ -151,6 +190,7 @@ function App() {
       showToast("LEDGER UPDATED", "Investment contribution finalized.", "success");
       setInvestAmounts(prev => ({ ...prev, [campaignId]: "" }));
       loadCampaigns();
+      loadInvestTimestamps();
       const details = await getWeb3Details();
       setBalance(details.balance);
     } catch (error) {
@@ -177,7 +217,6 @@ function App() {
       await tx.wait();
       
       showToast("LEDGER UPDATED", "Funds transferred to campaign owner account.", "success");
-      
       loadCampaigns();
       const details = await getWeb3Details();
       setBalance(details.balance);
@@ -189,8 +228,45 @@ function App() {
     }
   };
 
+  // Refund investasi — fitur perlindungan human error
+  const handleRefund = async (campaignId) => {
+    if (!account) {
+      showToast("WALLET REQUIRED", "Please connect your wallet first.", "error");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const contract = await getWriteContract();
+      const tx = await contract.refundDuaJam(campaignId);
+      showToast("TX SUBMITTED", "Processing refund request...", "info");
+
+      await tx.wait();
+
+      showToast("REFUND SUCCESS", "Investment has been returned to your wallet.", "success");
+      loadCampaigns();
+      loadInvestTimestamps();
+      const details = await getWeb3Details();
+      setBalance(details.balance);
+    } catch (error) {
+      console.error(error);
+      showToast("TX REVERTED", error.reason || error.message || "Refund failed or window expired.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleInvestAmountChange = (campaignId, val) => {
     setInvestAmounts(prev => ({ ...prev, [campaignId]: val }));
+  };
+
+  // FIX 1 + FIX 2: Helper hitung sisa waktu refund — pakai 'now' bukan Date.now()
+  const getSisaRefund = (investTime) => {
+    const deadlineMs = (investTime + REFUND_WINDOW_SECONDS) * 1000;
+    const sisaMs = Math.max(0, deadlineMs - now); // pakai state 'now'
+    const menit = Math.floor(sisaMs / 60000);
+    const detik = Math.floor((sisaMs % 60000) / 1000);
+    return { sisaMs, menit, detik };
   };
 
   return (
@@ -234,7 +310,7 @@ function App() {
         </div>
       </header>
 
-      {/* Control Navigation Menu - Menggunakan Style Khas Tim */}
+      {/* Control Navigation Menu */}
       <nav style={{ display: "flex", borderBottom: "2px solid #121212", backgroundColor: "#fafaf7" }}>
         <button 
           onClick={() => setCurrentTab("ledger")}
@@ -280,7 +356,7 @@ function App() {
         <div className="stat-card">
           <span className="stat-label">02 / ACTIVE CAMPAIGNS</span>
           <span className="stat-value">
-            {campaigns.filter((c) => c.aktif && c.deadline * 1000 > Date.now()).length}
+            {campaigns.filter((c) => c.aktif && c.deadline * 1000 > now).length}
           </span>
         </div>
         <div className="stat-card">
@@ -293,7 +369,6 @@ function App() {
 
       {/* Main layout */}
       <main className="main-layout">
-        {/* Left Side: Dynamic Workspace Rendering */}
         <section className="panel-left">
           
           {currentTab === "ledger" && (
@@ -307,11 +382,17 @@ function App() {
               ) : (
                 <div className="campaign-grid">
                   {campaigns.map((c, index) => {
-                    const isDeadlinePassed = c.deadline * 1000 < Date.now();
-                    const isCompleted = parseFloat(c.danaTerkumpul) >= parseFloat(c.targetDana);
-                    const progressPercentage = Math.min(((parseFloat(c.danaTerkumpul) / parseFloat(c.targetDana)) * 100), 100);
+                    const isDeadlinePassed = c.deadline * 1000 < now; // pakai 'now'
+                    const progressPercentage = Math.min(
+                      ((parseFloat(c.danaTerkumpul) / parseFloat(c.targetDana)) * 100), 100
+                    );
                     const dateObj = new Date(c.deadline * 1000);
                     const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
+
+                    // FIX 1: Refund window pakai REFUND_WINDOW_SECONDS + state 'now'
+                    const investTime = investTimestamps[c.id] || 0;
+                    const canRefund = investTime > 0 && now < (investTime + REFUND_WINDOW_SECONDS) * 1000;
+                    const { menit, detik } = getSisaRefund(investTime);
 
                     return (
                       <div className="campaign-card" key={c.id}>
@@ -321,14 +402,18 @@ function App() {
                             {c.aktif && !isDeadlinePassed ? "active" : "closed"}
                           </span>
                         </div>
+
                         <div className="campaign-title-row">
                           <h3 className="campaign-title">{c.judul}</h3>
                         </div>
+
                         <p className="campaign-desc">{c.deskripsi}</p>
+
                         <div className="owner-row">
                           <span className="label">ORIGIN:</span>
                           <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
                         </div>
+
                         <div className="progress-container">
                           <div className="progress-text">
                             <span>LEDGER METRIC PROGRESS</span>
@@ -338,6 +423,7 @@ function App() {
                             <div className="progress-fill" style={{ width: `${progressPercentage}%` }}></div>
                           </div>
                         </div>
+
                         <div className="ledger-details">
                           <div className="ledger-cell">
                             <span className="ledger-cell-label">COLLECTED VALUE</span>
@@ -353,27 +439,84 @@ function App() {
                           </div>
                           <div className="ledger-cell">
                             <span className="ledger-cell-label">STATUS CODE</span>
-                            <span className="ledger-cell-value">{c.aktif ? "0x01 / ACTIVE" : "0x00 / TERMINATED"}</span>
+                            <span className="ledger-cell-value">
+                              {c.aktif ? "0x01 / ACTIVE" : "0x00 / TERMINATED"}
+                            </span>
                           </div>
                         </div>
 
-                        {/* Bentuk investasi kontribusi */}
+                        {/* Tombol Investasi */}
                         {c.aktif && !isDeadlinePassed && (
                           <div className="contribution-row">
                             <div className="input-mono-wrapper">
                               <input 
-                                type="number" step="0.01" min="0" placeholder="0.10" className="form-input"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.10"
+                                className="form-input"
                                 value={investAmounts[c.id] || ""}
                                 onChange={(e) => handleInvestAmountChange(c.id, e.target.value)}
                                 disabled={loading}
                               />
                               <span className="input-suffix">ETH</span>
                             </div>
-                            <button className="btn-secondary" onClick={() => handleInvest(c.id)} disabled={loading}>
+                            <button
+                              className="btn-secondary"
+                              onClick={() => handleInvest(c.id)}
+                              disabled={loading}
+                            >
                               CONTRIBUTE
                             </button>
                           </div>
                         )}
+
+                        {/* Tombol Refund — muncul & countdown dinamis setiap detik */}
+                        {canRefund && (
+                          <div
+                            className="contribution-row"
+                            style={{
+                              marginTop: "0.5rem",
+                              borderTop: "1px dashed #e63946",
+                              paddingTop: "0.75rem",
+                              flexDirection: "column",
+                              gap: "0.5rem",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: "0.72rem",
+                                fontFamily: "var(--font-mono)",
+                                color: "#e63946",
+                                letterSpacing: "0.05em",
+                              }}
+                            >
+                              ⚠ REFUND WINDOW ACTIVE — EXPIRES IN {menit}m {detik}s
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "0.68rem",
+                                fontFamily: "var(--font-mono)",
+                                color: "#888",
+                              }}
+                            >
+                              HUMAN ERROR PROTECTION: CANCEL YOUR INVESTMENT WITHIN 2 HOURS
+                            </div>
+                            <button
+                              className="btn-secondary"
+                              onClick={() => handleRefund(c.id)}
+                              disabled={loading}
+                              style={{
+                                borderColor: "#e63946",
+                                color: "#e63946",
+                                width: "100%",
+                              }}
+                            >
+                              {loading ? "PROCESSING..." : "CANCEL INVESTMENT (REFUND)"}
+                            </button>
+                          </div>
+                        )}
+
                       </div>
                     );
                   })}
@@ -403,7 +546,7 @@ function App() {
 
         </section>
 
-        {/* Right Side: Registry Input Tetap Muncul Untuk Kemudahan Akses Operator */}
+        {/* Right Side: Registry Input */}
         <section className="panel-right">
           <CreateCampaign 
             account={account} 
@@ -415,7 +558,7 @@ function App() {
 
       {/* Bottom stamp */}
       <footer className="legal-notice">
-        CHAINFUND DECENTRALIZED PROTOCOL // VERSION 1.0.0 // LOCAL HOST NETWORK
+        CHAINFUND DECENTRALIZED PROTOCOL // VERSION 1.1.0 // LOCAL HOST NETWORK
       </footer>
     </div>
   );
