@@ -5,6 +5,7 @@ import { getWriteContract } from "../contracts/contract";
 function CreateCampaign({ account, showToast, onSuccess }) {
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [newCategory, setNewCategory] = useState("0"); // Kategori Default
   const [newTarget, setNewTarget] = useState("");
   const [newDuration, setNewDuration] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,10 +26,12 @@ function CreateCampaign({ account, showToast, onSuccess }) {
       setLoading(true);
       const contract = await getWriteContract();
 
+      const categoryId = parseInt(newCategory);
       const targetInWei = ethers.parseEther(newTarget);
       const durationInDays = BigInt(newDuration);
 
-      const tx = await contract.buatCampaign(newTitle, newDescription, targetInWei, durationInDays);
+      // Sesuai dengan ABI baru: buatCampaign(judul, deskripsi, kategoriId, targetDana, durasi)
+      const tx = await contract.buatCampaign(newTitle, newDescription, categoryId, targetInWei, durationInDays);
       showToast("TX SUBMITTED", "Deploying record to local ledger... please wait.", "info");
       
       await tx.wait();
@@ -38,6 +41,7 @@ function CreateCampaign({ account, showToast, onSuccess }) {
       // Clear inputs
       setNewTitle("");
       setNewDescription("");
+      setNewCategory("0");
       setNewTarget("");
       setNewDuration("");
       
@@ -71,6 +75,21 @@ function CreateCampaign({ account, showToast, onSuccess }) {
             disabled={loading}
             required
           />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">CATEGORY</label>
+          <select 
+            className="form-input" 
+            value={newCategory} 
+            onChange={(e) => setNewCategory(e.target.value)}
+            disabled={loading}
+          >
+            <option value="0">0x00 - TECHNOLOGY & IT</option>
+            <option value="1">0x01 - SOCIAL & HUMANITY</option>
+            <option value="2">0x02 - ENVIRONMENT</option>
+            <option value="3">0x03 - BUSINESS & STARTUP</option>
+          </select>
         </div>
 
         <div className="form-group">
