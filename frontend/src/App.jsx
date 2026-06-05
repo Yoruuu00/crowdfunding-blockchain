@@ -11,7 +11,7 @@ import DashboardPage from "./pages/DashboardPage";
 import InvestorPage from "./pages/InvestorPage";
 import FounderPage from "./pages/FounderPage";
 
-const REFUND_WINDOW_SECONDS = 7200;
+const REFUND_WINDOW_SECONDS = 120;
 
 // ─────────────────────────────────────────
 // NAVBAR — berbeda untuk investor & founder
