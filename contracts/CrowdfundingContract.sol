@@ -129,7 +129,7 @@ contract CrowdfundingContract {
 
         require(jumlah > 0, "Anda belum berinvestasi di campaign ini");
         require(
-            block.timestamp <= waktuInvestasi[_campaignId][msg.sender] + 2 hours,
+            block.timestamp <= waktuInvestasi[_campaignId][msg.sender] + 2 minutes,
             "Batas waktu refund 2 jam sudah lewat"
         );
 
