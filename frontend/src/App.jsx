@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
-import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import {
   getReadOnlyContract,
   getWriteContract,
@@ -11,15 +11,14 @@ import DashboardPage from "./pages/DashboardPage";
 import InvestorPage from "./pages/InvestorPage";
 import FounderPage from "./pages/FounderPage";
 
-const REFUND_WINDOW_SECONDS = 120;
+// Status map sesuai enum contract teman
+const STATUS_MAP = ["ACTIVE", "FUNDED", "FAILED", "COMPLETED", "CANCELED"];
 
 // ─────────────────────────────────────────
 // NAVBAR — berbeda untuk investor & founder
 // ─────────────────────────────────────────
 function Navbar({ account, balance, loading, connectWallet, formatAddress }) {
   const location = useLocation();
-
-  // Tidak tampil di landing page
   if (location.pathname === "/") return null;
 
   const isInvestorPage = ["/dashboard", "/investor"].includes(location.pathname);
@@ -28,11 +27,9 @@ function Navbar({ account, balance, loading, connectWallet, formatAddress }) {
     { path: "/dashboard", label: "[01 // DASHBOARD]" },
     { path: "/investor", label: "[02 // MY PORTFOLIO]" },
   ];
-
   const founderItems = [
     { path: "/founder", label: "[01 // FOUNDER PANEL]" },
   ];
-
   const navItems = isInvestorPage ? investorItems : founderItems;
 
   return (
@@ -67,50 +64,23 @@ function Navbar({ account, balance, loading, connectWallet, formatAddress }) {
           )}
         </div>
       </header>
-
       <nav style={{ display: "flex", borderBottom: "2px solid #121212", backgroundColor: "#fafaf7" }}>
-        {/* Tombol back to home */}
         <Link to="/" style={{
-          padding: "1rem 1.5rem",
-          fontFamily: "var(--font-mono)",
-          fontSize: "0.85rem",
-          fontWeight: "700",
-          background: "transparent",
-          color: "#121212",
-          borderRight: "1px solid #121212",
-          cursor: "pointer",
-          textDecoration: "none",
-          display: "flex",
-          alignItems: "center",
-          whiteSpace: "nowrap",
-        }}>
-          ← HOME
-        </Link>
-
-        {/* Nav items sesuai role */}
+          padding: "1rem 1.5rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: "700",
+          background: "transparent", color: "#121212", borderRight: "1px solid #121212",
+          cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", whiteSpace: "nowrap",
+        }}>← HOME</Link>
         {navItems.map((item, idx) => {
           const isActive = location.pathname === item.path;
           const isLast = idx === navItems.length - 1;
           return (
             <Link key={item.path} to={item.path} style={{
-              flex: 1,
-              padding: "1rem",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.85rem",
-              fontWeight: "700",
-              background: isActive ? "#121212" : "transparent",
-              color: isActive ? "#f8f7f4" : "#121212",
-              borderRight: !isLast ? "1px solid #121212" : "none",
-              cursor: "pointer",
-              textTransform: "uppercase",
-              textDecoration: "none",
-              textAlign: "center",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}>
-              {item.label}
-            </Link>
+              flex: 1, padding: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: "700",
+              background: isActive ? "#121212" : "transparent", color: isActive ? "#f8f7f4" : "#121212",
+              borderRight: !isLast ? "1px solid #121212" : "none", cursor: "pointer",
+              textTransform: "uppercase", textDecoration: "none", textAlign: "center",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>{item.label}</Link>
           );
         })}
       </nav>
@@ -118,10 +88,7 @@ function Navbar({ account, balance, loading, connectWallet, formatAddress }) {
   );
 }
 
-// ─────────────────────────────────────────
-// STATS BANNER — hanya di halaman non-landing
-// ─────────────────────────────────────────
-function StatsBanner({ campaigns, now, location }) {
+function StatsBanner({ campaigns, location }) {
   if (location.pathname === "/") return null;
   return (
     <section className="stats-banner">
@@ -131,9 +98,7 @@ function StatsBanner({ campaigns, now, location }) {
       </div>
       <div className="stat-card">
         <span className="stat-label">02 / ACTIVE CAMPAIGNS</span>
-        <span className="stat-value">
-          {campaigns.filter((c) => c.aktif && c.deadline * 1000 > now).length}
-        </span>
+        <span className="stat-value">{campaigns.filter((c) => c.statusInt === 0).length}</span>
       </div>
       <div className="stat-card">
         <span className="stat-label">03 / CUMULATIVE VALUE</span>
@@ -145,26 +110,13 @@ function StatsBanner({ campaigns, now, location }) {
   );
 }
 
-// ─────────────────────────────────────────
-// APP CONTENT
-// ─────────────────────────────────────────
 function AppContent() {
   const location = useLocation();
-
   const [account, setAccount] = useState("");
   const [balance, setBalance] = useState("0");
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
-  const [investAmounts, setInvestAmounts] = useState({});
-  const [investTimestamps, setInvestTimestamps] = useState({});
-  const [now, setNow] = useState(Date.now());
-
-  // Countdown timer — update setiap detik
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const showToast = useCallback((title, msg, type = "info") => {
     setToast({ title, msg, type });
@@ -177,10 +129,7 @@ function AppContent() {
   };
 
   const connectWallet = async () => {
-    if (!window.ethereum) {
-      showToast("METAMASK NOT FOUND", "Please install MetaMask.", "error");
-      return;
-    }
+    if (!window.ethereum) { showToast("METAMASK NOT FOUND", "Please install MetaMask.", "error"); return; }
     try {
       setLoading(true);
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
@@ -193,52 +142,42 @@ function AppContent() {
       }
     } catch (error) {
       showToast("CONNECTION FAILED", error.message || "Failed to connect.", "error");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const loadCampaigns = useCallback(async () => {
     try {
       const contract = getReadOnlyContract();
-      const list = await contract.semuaCampaign();
-      setCampaigns(list.map((c) => ({
-        id: Number(c.id),
-        judul: c.judul,
-        deskripsi: c.deskripsi,
-        pemilik: c.pemilik,
-        targetDana: ethers.formatEther(c.targetDana),
-        danaTerkumpul: ethers.formatEther(c.danaTerkumpul),
-        deadline: Number(c.deadline),
-        aktif: c.aktif,
-      })));
-    } catch (error) {
-      console.error("Error loading campaigns:", error);
-    }
-  }, []);
-
-  const loadInvestTimestamps = useCallback(async () => {
-    if (!account || campaigns.length === 0) return;
-    try {
-      const contract = getReadOnlyContract();
-      const timestamps = {};
-      for (const c of campaigns) {
-        const ts = await contract.waktuInvestasi(c.id, account);
-        timestamps[c.id] = Number(ts);
+      const totalCampaigns = await contract.jumlahCampaign();
+      if (Number(totalCampaigns) > 0) {
+        const list = await contract.getCampaigns(0, totalCampaigns);
+        const formattedList = await Promise.all(list.map(async (c) => {
+          const reputasi = await contract.reputasiKreator(c.pemilik);
+          return {
+            id: Number(c.id),
+            judul: c.judul,
+            deskripsi: c.deskripsi,
+            kategoriId: Number(c.kategoriId),
+            pemilik: c.pemilik,
+            targetDana: ethers.formatEther(c.targetDana),
+            danaTerkumpul: ethers.formatEther(c.danaTerkumpul),
+            deadline: Number(c.deadline),
+            statusInt: Number(c.status),
+            statusLabel: STATUS_MAP[Number(c.status)],
+            reputasi: Number(reputasi),
+          };
+        }));
+        setCampaigns(formattedList);
+      } else {
+        setCampaigns([]);
       }
-      setInvestTimestamps(timestamps);
-    } catch (error) {
-      console.error("Error loading timestamps:", error);
-    }
-  }, [account, campaigns]);
+    } catch (error) { console.error("Error loading campaigns:", error); }
+  }, []);
 
   useEffect(() => {
     const init = async () => {
       const details = await getWeb3Details();
-      if (details.account) {
-        setAccount(details.account);
-        setBalance(details.balance);
-      }
+      if (details.account) { setAccount(details.account); setBalance(details.balance); }
     };
     init();
     if (window.ethereum) {
@@ -247,23 +186,15 @@ function AppContent() {
           const details = await getWeb3Details();
           setAccount(details.account || accounts[0]);
           setBalance(details.balance);
-        } else {
-          setAccount("");
-          setBalance("0");
-        }
+        } else { setAccount(""); setBalance("0"); }
       });
       window.ethereum.on("chainChanged", () => window.location.reload());
     }
     loadCampaigns();
   }, [loadCampaigns]);
 
-  useEffect(() => {
-    if (account && campaigns.length > 0) loadInvestTimestamps();
-  }, [account, campaigns, loadInvestTimestamps]);
-
-  const handleInvest = async (campaignId) => {
+  const handleInvest = async (campaignId, amount) => {
     if (!account) { showToast("WALLET REQUIRED", "Connect wallet first.", "error"); return; }
-    const amount = investAmounts[campaignId];
     if (!amount || parseFloat(amount) <= 0) { showToast("INVALID VALUE", "Enter a positive ETH value.", "error"); return; }
     try {
       setLoading(true);
@@ -272,14 +203,10 @@ function AppContent() {
       showToast("TX SUBMITTED", "Broadcasting contribution...", "info");
       await tx.wait();
       showToast("LEDGER UPDATED", "Investment finalized.", "success");
-      setInvestAmounts(prev => ({ ...prev, [campaignId]: "" }));
       loadCampaigns();
-      loadInvestTimestamps();
-      const details = await getWeb3Details();
-      setBalance(details.balance);
-    } catch (error) {
-      showToast("TX REVERTED", error.reason || error.message || "Reverted.", "error");
-    } finally { setLoading(false); }
+      const details = await getWeb3Details(); setBalance(details.balance);
+    } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Reverted.", "error"); }
+    finally { setLoading(false); }
   };
 
   const handleWithdraw = async (campaignId) => {
@@ -292,55 +219,19 @@ function AppContent() {
       await tx.wait();
       showToast("LEDGER UPDATED", "Funds transferred.", "success");
       loadCampaigns();
-      const details = await getWeb3Details();
-      setBalance(details.balance);
-    } catch (error) {
-      showToast("TX REVERTED", error.reason || error.message || "Reverted.", "error");
-    } finally { setLoading(false); }
-  };
-
-  const handleRefund = async (campaignId) => {
-    if (!account) { showToast("WALLET REQUIRED", "Connect wallet first.", "error"); return; }
-    try {
-      setLoading(true);
-      const contract = await getWriteContract();
-      const tx = await contract.refundDuaJam(campaignId);
-      showToast("TX SUBMITTED", "Processing refund...", "info");
-      await tx.wait();
-      showToast("REFUND SUCCESS", "Investment returned.", "success");
-      loadCampaigns();
-      loadInvestTimestamps();
-      const details = await getWeb3Details();
-      setBalance(details.balance);
-    } catch (error) {
-      showToast("TX REVERTED", error.reason || error.message || "Refund failed.", "error");
-    } finally { setLoading(false); }
+      const details = await getWeb3Details(); setBalance(details.balance);
+    } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Reverted.", "error"); }
+    finally { setLoading(false); }
   };
 
   const handleSuccess = async () => {
     loadCampaigns();
-    const details = await getWeb3Details();
-    setBalance(details.balance);
-  };
-
-  const handleInvestAmountChange = (campaignId, val) => {
-    setInvestAmounts(prev => ({ ...prev, [campaignId]: val }));
-  };
-
-  const getSisaRefund = (investTime) => {
-    const deadlineMs = (investTime + REFUND_WINDOW_SECONDS) * 1000;
-    const sisaMs = Math.max(0, deadlineMs - now);
-    return {
-      sisaMs,
-      menit: Math.floor(sisaMs / 60000),
-      detik: Math.floor((sisaMs % 60000) / 1000),
-    };
+    const details = await getWeb3Details(); setBalance(details.balance);
   };
 
   const sharedProps = {
-    account, campaigns, loading, investAmounts, investTimestamps, now,
-    REFUND_WINDOW_SECONDS, handleInvest, handleWithdraw, handleRefund,
-    handleInvestAmountChange, handleSuccess, getSisaRefund, showToast,
+    account, campaigns, loading,
+    handleInvest, handleWithdraw, handleSuccess, showToast, loadCampaigns,
   };
 
   const landingProps = { account, connectWallet, loading, formatAddress };
@@ -353,24 +244,14 @@ function AppContent() {
           <div className="toast-msg">{toast.msg}</div>
         </div>
       )}
-
-      <Navbar
-        account={account}
-        balance={balance}
-        loading={loading}
-        connectWallet={connectWallet}
-        formatAddress={formatAddress}
-      />
-
-      <StatsBanner campaigns={campaigns} now={now} location={location} />
-
+      <Navbar account={account} balance={balance} loading={loading} connectWallet={connectWallet} formatAddress={formatAddress} />
+      <StatsBanner campaigns={campaigns} location={location} />
       <Routes>
         <Route path="/" element={<LandingPage {...landingProps} />} />
         <Route path="/dashboard" element={<DashboardPage {...sharedProps} />} />
         <Route path="/investor" element={<InvestorPage {...sharedProps} />} />
         <Route path="/founder" element={<FounderPage {...sharedProps} />} />
       </Routes>
-
       {location.pathname !== "/" && (
         <footer className="legal-notice">
           CHAINFUND DECENTRALIZED PROTOCOL // VERSION 2.0.0 // LOCAL HOST NETWORK
@@ -380,9 +261,6 @@ function AppContent() {
   );
 }
 
-// ─────────────────────────────────────────
-// ROOT APP
-// ─────────────────────────────────────────
 function App() {
   return (
     <Router>
