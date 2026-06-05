@@ -31,7 +31,7 @@ function CreateCampaign({ account, showToast, onSuccess }) {
       const durationInDays = BigInt(newDuration);
 
       // Sesuai dengan ABI baru: buatCampaign(judul, deskripsi, kategoriId, targetDana, durasi)
-      const tx = await contract.buatCampaign(newTitle, newDescription, categoryId, targetInWei, durationInDays);
+      const tx = await contract.buatCampaign(newTitle, newDescription, targetInWei, durationInDays);
       showToast("TX SUBMITTED", "Deploying record to local ledger... please wait.", "info");
       
       await tx.wait();

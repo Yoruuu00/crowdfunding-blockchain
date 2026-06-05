@@ -11,18 +11,13 @@ import DashboardPage from "./pages/DashboardPage";
 import InvestorPage from "./pages/InvestorPage";
 import FounderPage from "./pages/FounderPage";
 
-// Status map sesuai enum contract teman
-const STATUS_MAP = ["ACTIVE", "FUNDED", "FAILED", "COMPLETED", "CANCELED"];
+const REFUND_WINDOW_SECONDS = 7200; // 2 jam production
 
-// ─────────────────────────────────────────
-// NAVBAR — berbeda untuk investor & founder
-// ─────────────────────────────────────────
 function Navbar({ account, balance, loading, connectWallet, formatAddress }) {
   const location = useLocation();
   if (location.pathname === "/") return null;
 
   const isInvestorPage = ["/dashboard", "/investor"].includes(location.pathname);
-
   const investorItems = [
     { path: "/dashboard", label: "[01 // DASHBOARD]" },
     { path: "/investor", label: "[02 // MY PORTFOLIO]" },
@@ -88,7 +83,7 @@ function Navbar({ account, balance, loading, connectWallet, formatAddress }) {
   );
 }
 
-function StatsBanner({ campaigns, location }) {
+function StatsBanner({ campaigns, now, location }) {
   if (location.pathname === "/") return null;
   return (
     <section className="stats-banner">
@@ -98,7 +93,9 @@ function StatsBanner({ campaigns, location }) {
       </div>
       <div className="stat-card">
         <span className="stat-label">02 / ACTIVE CAMPAIGNS</span>
-        <span className="stat-value">{campaigns.filter((c) => c.statusInt === 0).length}</span>
+        <span className="stat-value">
+          {campaigns.filter((c) => c.aktif && c.deadline * 1000 > now).length}
+        </span>
       </div>
       <div className="stat-card">
         <span className="stat-label">03 / CUMULATIVE VALUE</span>
@@ -117,6 +114,15 @@ function AppContent() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
+  const [investAmounts, setInvestAmounts] = useState({});
+  const [investTimestamps, setInvestTimestamps] = useState({});
+  const [now, setNow] = useState(Date.now());
+
+  // Countdown timer
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const showToast = useCallback((title, msg, type = "info") => {
     setToast({ title, msg, type });
@@ -145,34 +151,41 @@ function AppContent() {
     } finally { setLoading(false); }
   };
 
+  // FIXED: pakai semuaCampaign() sesuai contract kita
   const loadCampaigns = useCallback(async () => {
     try {
       const contract = getReadOnlyContract();
-      const totalCampaigns = await contract.jumlahCampaign();
-      if (Number(totalCampaigns) > 0) {
-        const list = await contract.getCampaigns(0, totalCampaigns);
-        const formattedList = await Promise.all(list.map(async (c) => {
-          const reputasi = await contract.reputasiKreator(c.pemilik);
-          return {
-            id: Number(c.id),
-            judul: c.judul,
-            deskripsi: c.deskripsi,
-            kategoriId: Number(c.kategoriId),
-            pemilik: c.pemilik,
-            targetDana: ethers.formatEther(c.targetDana),
-            danaTerkumpul: ethers.formatEther(c.danaTerkumpul),
-            deadline: Number(c.deadline),
-            statusInt: Number(c.status),
-            statusLabel: STATUS_MAP[Number(c.status)],
-            reputasi: Number(reputasi),
-          };
-        }));
-        setCampaigns(formattedList);
-      } else {
-        setCampaigns([]);
-      }
-    } catch (error) { console.error("Error loading campaigns:", error); }
+      const list = await contract.semuaCampaign();
+      setCampaigns(list.map((c) => ({
+        id: Number(c.id),
+        judul: c.judul,
+        deskripsi: c.deskripsi,
+        pemilik: c.pemilik,
+        targetDana: ethers.formatEther(c.targetDana),
+        danaTerkumpul: ethers.formatEther(c.danaTerkumpul),
+        deadline: Number(c.deadline),
+        aktif: c.aktif,
+        statusInt: c.aktif ? 0 : 1,
+      })));
+    } catch (error) {
+      console.error("Error loading campaigns:", error);
+    }
   }, []);
+
+  const loadInvestTimestamps = useCallback(async () => {
+    if (!account || campaigns.length === 0) return;
+    try {
+      const contract = getReadOnlyContract();
+      const timestamps = {};
+      for (const c of campaigns) {
+        const ts = await contract.waktuInvestasi(c.id, account);
+        timestamps[c.id] = Number(ts);
+      }
+      setInvestTimestamps(timestamps);
+    } catch (error) {
+      console.error("Error loading timestamps:", error);
+    }
+  }, [account, campaigns]);
 
   useEffect(() => {
     const init = async () => {
@@ -193,6 +206,10 @@ function AppContent() {
     loadCampaigns();
   }, [loadCampaigns]);
 
+  useEffect(() => {
+    if (account && campaigns.length > 0) loadInvestTimestamps();
+  }, [account, campaigns, loadInvestTimestamps]);
+
   const handleInvest = async (campaignId, amount) => {
     if (!account) { showToast("WALLET REQUIRED", "Connect wallet first.", "error"); return; }
     if (!amount || parseFloat(amount) <= 0) { showToast("INVALID VALUE", "Enter a positive ETH value.", "error"); return; }
@@ -203,7 +220,8 @@ function AppContent() {
       showToast("TX SUBMITTED", "Broadcasting contribution...", "info");
       await tx.wait();
       showToast("LEDGER UPDATED", "Investment finalized.", "success");
-      loadCampaigns();
+      await loadCampaigns();
+      loadInvestTimestamps();
       const details = await getWeb3Details(); setBalance(details.balance);
     } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Reverted.", "error"); }
     finally { setLoading(false); }
@@ -218,20 +236,52 @@ function AppContent() {
       showToast("TX SUBMITTED", "Broadcasting withdrawal...", "info");
       await tx.wait();
       showToast("LEDGER UPDATED", "Funds transferred.", "success");
-      loadCampaigns();
+      await loadCampaigns();
       const details = await getWeb3Details(); setBalance(details.balance);
     } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Reverted.", "error"); }
     finally { setLoading(false); }
   };
 
+  const handleRefund = async (campaignId) => {
+    if (!account) { showToast("WALLET REQUIRED", "Connect wallet first.", "error"); return; }
+    try {
+      setLoading(true);
+      const contract = await getWriteContract();
+      const tx = await contract.refundDuaJam(campaignId);
+      showToast("TX SUBMITTED", "Processing refund...", "info");
+      await tx.wait();
+      showToast("REFUND SUCCESS", "Investment returned to wallet.", "success");
+      await loadCampaigns();
+      loadInvestTimestamps();
+      const details = await getWeb3Details(); setBalance(details.balance);
+    } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Refund failed.", "error"); }
+    finally { setLoading(false); }
+  };
+
+  // FIXED: await loadCampaigns
   const handleSuccess = async () => {
-    loadCampaigns();
-    const details = await getWeb3Details(); setBalance(details.balance);
+    await loadCampaigns();
+    const details = await getWeb3Details();
+    setBalance(details.balance);
+  };
+
+  const handleInvestAmountChange = (campaignId, val) => {
+    setInvestAmounts(prev => ({ ...prev, [campaignId]: val }));
+  };
+
+  const getSisaRefund = (investTime) => {
+    const deadlineMs = (investTime + REFUND_WINDOW_SECONDS) * 1000;
+    const sisaMs = Math.max(0, deadlineMs - now);
+    return { sisaMs, menit: Math.floor(sisaMs / 60000), detik: Math.floor((sisaMs % 60000) / 1000) };
   };
 
   const sharedProps = {
     account, campaigns, loading,
-    handleInvest, handleWithdraw, handleSuccess, showToast, loadCampaigns,
+    investAmounts, investTimestamps, now,
+    REFUND_WINDOW_SECONDS,
+    handleInvest, handleWithdraw, handleRefund,
+    handleInvestAmountChange, handleSuccess,
+    getSisaRefund, showToast, loadCampaigns,
   };
 
   const landingProps = { account, connectWallet, loading, formatAddress };
@@ -245,7 +295,7 @@ function AppContent() {
         </div>
       )}
       <Navbar account={account} balance={balance} loading={loading} connectWallet={connectWallet} formatAddress={formatAddress} />
-      <StatsBanner campaigns={campaigns} location={location} />
+      <StatsBanner campaigns={campaigns} now={now} location={location} />
       <Routes>
         <Route path="/" element={<LandingPage {...landingProps} />} />
         <Route path="/dashboard" element={<DashboardPage {...sharedProps} />} />

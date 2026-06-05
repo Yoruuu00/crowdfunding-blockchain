@@ -1,43 +1,34 @@
 import React, { useState } from "react";
-import CampaignUpdates from "../components/CampaignUpdates";
 
-const KATEGORI_MAP = {
-  "ALL": "ALL CATEGORIES",
-  "0": "TECHNOLOGY & IT",
-  "1": "SOCIAL & HUMANITY",
-  "2": "ENVIRONMENT",
-  "3": "BUSINESS & STARTUP",
-};
-
-function DashboardPage({ account, campaigns, loading, handleInvest, showToast }) {
-  const [investAmounts, setInvestAmounts] = useState({});
+function DashboardPage({
+  account, campaigns, loading,
+  investAmounts, investTimestamps, now,
+  REFUND_WINDOW_SECONDS,
+  handleInvest, handleRefund,
+  handleInvestAmountChange, getSisaRefund,
+}) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterCategory, setFilterCategory] = useState("ALL");
   const [sortOption, setSortOption] = useState("NEWEST");
 
   const formatIndex = (id) => `#${String(id + 1).padStart(3, "0")}`;
 
-  const handleInvestAmountChange = (campaignId, val) => {
-    setInvestAmounts(prev => ({ ...prev, [campaignId]: val }));
-  };
-
   const handleContribute = async (campaignId) => {
-    const amount = investAmounts[campaignId];
+    const amount = investAmounts?.[campaignId];
     await handleInvest(campaignId, amount);
-    setInvestAmounts(prev => ({ ...prev, [campaignId]: "" }));
   };
 
-  // Filter, search, sort
+  // Filter & Sort
   const getProcessedCampaigns = () => {
     let processed = [...campaigns];
-    if (filterCategory !== "ALL") {
-      processed = processed.filter(c => c.kategoriId.toString() === filterCategory);
-    }
+
+    // Search by title
     if (searchTerm.trim() !== "") {
       processed = processed.filter(c =>
         c.judul.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
+
+    // Sort
     switch (sortOption) {
       case "NEWEST":
         processed.sort((a, b) => b.id - a.id);
@@ -63,8 +54,13 @@ function DashboardPage({ account, campaigns, loading, handleInvest, showToast })
   return (
     <main className="main-layout">
       <section className="panel-left">
-        {/* Header + Search/Filter/Sort */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "1rem" }}>
+
+        {/* Header + Search & Sort */}
+        <div style={{
+          display: "flex", justifyContent: "space-between",
+          alignItems: "center", marginBottom: "1rem",
+          flexWrap: "wrap", gap: "1rem"
+        }}>
           <h2 className="panel-title" style={{ margin: 0 }}>
             <span className="number">INDEX</span> LEDGER ENTRIES
           </h2>
@@ -77,16 +73,6 @@ function DashboardPage({ account, campaigns, loading, handleInvest, showToast })
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <select
-              className="form-input"
-              style={{ margin: 0, padding: "0.5rem" }}
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-            >
-              {Object.entries(KATEGORI_MAP).map(([val, label]) => (
-                <option key={val} value={val}>{label}</option>
-              ))}
-            </select>
             <select
               className="form-input"
               style={{ margin: 0, padding: "0.5rem" }}
@@ -103,42 +89,39 @@ function DashboardPage({ account, campaigns, loading, handleInvest, showToast })
         {displayCampaigns.length === 0 ? (
           <div className="empty-state">
             <h3>NO ENTRIES MATCHING CRITERIA</h3>
-            <p>ADJUST YOUR SEARCH OR FILTER PARAMETERS, OR GO TO FOUNDER PANEL TO CREATE A CAMPAIGN.</p>
+            <p>ADJUST YOUR SEARCH PARAMETERS, OR GO TO FOUNDER PANEL TO CREATE A CAMPAIGN.</p>
           </div>
         ) : (
           <div className="campaign-grid">
             {displayCampaigns.map((c) => {
-              const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
+              const isDeadlinePassed = c.deadline * 1000 < now;
+              const isActive = c.aktif && !isDeadlinePassed;
               const progressPercentage = Math.min(
                 ((parseFloat(c.danaTerkumpul) / parseFloat(c.targetDana)) * 100), 100
               );
               const dateObj = new Date(c.deadline * 1000);
-              const isActive = c.statusInt === 0;
+              const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
+
+              // Refund logic
+              const investTime = investTimestamps?.[c.id] || 0;
+              const canRefund = investTime > 0 && now < (investTime + REFUND_WINDOW_SECONDS) * 1000;
+              const { menit, detik } = getSisaRefund ? getSisaRefund(investTime) : { menit: 0, detik: 0 };
 
               return (
                 <div className="campaign-card" key={c.id}>
                   <div className="campaign-meta-line">
                     <span className="campaign-index">{formatIndex(c.id)}</span>
-                    <span className={`campaign-status status-${c.statusLabel.toLowerCase()}`}>
-                      {c.statusLabel}
+                    <span className={`campaign-status ${isActive ? "status-active" : "status-closed"}`}>
+                      {isActive ? "ACTIVE" : "CLOSED"}
                     </span>
                   </div>
 
                   <h3 className="campaign-title">{c.judul}</h3>
                   <p className="campaign-desc">{c.deskripsi}</p>
 
-                  <div className="owner-row" style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap" }}>
-                    <div>
-                      <span className="label">ORIGIN:</span>
-                      <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
-                    </div>
-                    <div style={{ fontSize: "0.72rem", color: c.reputasi > 0 ? "var(--accent-green)" : "var(--text-dim)", fontWeight: "bold" }}>
-                      REP: {c.reputasi} ✓
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: "0.7rem", color: "#888", marginTop: "0.25rem", fontFamily: "var(--font-mono)" }}>
-                    CATEGORY: {KATEGORI_MAP[c.kategoriId.toString()] || "UNKNOWN"}
+                  <div className="owner-row">
+                    <span className="label">ORIGIN:</span>
+                    <span title={c.pemilik}>{isUserOwner ? "[YOU]" : c.pemilik}</span>
                   </div>
 
                   <div className="progress-container">
@@ -166,7 +149,9 @@ function DashboardPage({ account, campaigns, loading, handleInvest, showToast })
                     </div>
                     <div className="ledger-cell">
                       <span className="ledger-cell-label">STATUS CODE</span>
-                      <span className="ledger-cell-value">0x0{c.statusInt} / {c.statusLabel}</span>
+                      <span className="ledger-cell-value">
+                        {isActive ? "0x01 / ACTIVE" : "0x00 / CLOSED"}
+                      </span>
                     </div>
                   </div>
 
@@ -177,25 +162,45 @@ function DashboardPage({ account, campaigns, loading, handleInvest, showToast })
                         <input
                           type="number" step="0.01" min="0" placeholder="0.10"
                           className="form-input"
-                          value={investAmounts[c.id] || ""}
+                          value={investAmounts?.[c.id] || ""}
                           onChange={(e) => handleInvestAmountChange(c.id, e.target.value)}
                           disabled={loading}
                         />
                         <span className="input-suffix">ETH</span>
                       </div>
-                      <button className="btn-secondary" onClick={() => handleContribute(c.id)} disabled={loading}>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => handleContribute(c.id)}
+                        disabled={loading}
+                      >
                         CONTRIBUTE
                       </button>
                     </div>
                   )}
 
-                  {/* Campaign Updates */}
-                  <CampaignUpdates
-                    campaignId={c.id}
-                    isOwner={isUserOwner}
-                    account={account}
-                    showToast={showToast}
-                  />
+                  {/* Tombol Refund */}
+                  {canRefund && (
+                    <div className="contribution-row" style={{
+                      marginTop: "0.5rem", borderTop: "1px dashed #e63946",
+                      paddingTop: "0.75rem", flexDirection: "column", gap: "0.5rem",
+                    }}>
+                      <div style={{ fontSize: "0.72rem", fontFamily: "var(--font-mono)", color: "#e63946" }}>
+                        ⚠ REFUND WINDOW ACTIVE — EXPIRES IN {menit}m {detik}s
+                      </div>
+                      <div style={{ fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "#888" }}>
+                        HUMAN ERROR PROTECTION: CANCEL YOUR INVESTMENT WITHIN 2 HOURS
+                      </div>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => handleRefund(c.id)}
+                        disabled={loading}
+                        style={{ borderColor: "#e63946", color: "#e63946", width: "100%" }}
+                      >
+                        {loading ? "PROCESSING..." : "CANCEL INVESTMENT (REFUND)"}
+                      </button>
+                    </div>
+                  )}
+
                 </div>
               );
             })}
