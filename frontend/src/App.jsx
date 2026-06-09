@@ -116,9 +116,9 @@ function AppContent() {
   const [toast, setToast] = useState(null);
   const [investAmounts, setInvestAmounts] = useState({});
   const [investTimestamps, setInvestTimestamps] = useState({});
+  const [sudahRefundMap, setSudahRefundMap] = useState({}); // Lapis 2: track status refund
   const [now, setNow] = useState(Date.now());
 
-  // Countdown timer
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
@@ -151,7 +151,6 @@ function AppContent() {
     } finally { setLoading(false); }
   };
 
-  // FIXED: pakai semuaCampaign() sesuai contract kita
   const loadCampaigns = useCallback(async () => {
     try {
       const contract = getReadOnlyContract();
@@ -172,16 +171,22 @@ function AppContent() {
     }
   }, []);
 
+  // Load timestamps + status sudahRefund dari contract
   const loadInvestTimestamps = useCallback(async () => {
     if (!account || campaigns.length === 0) return;
     try {
       const contract = getReadOnlyContract();
       const timestamps = {};
+      const refundStatus = {};
       for (const c of campaigns) {
         const ts = await contract.waktuInvestasi(c.id, account);
         timestamps[c.id] = Number(ts);
+        // Lapis 2: baca status sudahRefund dari contract
+        const sudah = await contract.sudahRefund(c.id, account);
+        refundStatus[c.id] = sudah;
       }
       setInvestTimestamps(timestamps);
+      setSudahRefundMap(refundStatus);
     } catch (error) {
       console.error("Error loading timestamps:", error);
     }
@@ -252,13 +257,12 @@ function AppContent() {
       await tx.wait();
       showToast("REFUND SUCCESS", "Investment returned to wallet.", "success");
       await loadCampaigns();
-      loadInvestTimestamps();
+      loadInvestTimestamps(); // update sudahRefundMap juga
       const details = await getWeb3Details(); setBalance(details.balance);
     } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Refund failed.", "error"); }
     finally { setLoading(false); }
   };
 
-  // FIXED: await loadCampaigns
   const handleSuccess = async () => {
     await loadCampaigns();
     const details = await getWeb3Details();
@@ -277,7 +281,7 @@ function AppContent() {
 
   const sharedProps = {
     account, campaigns, loading,
-    investAmounts, investTimestamps, now,
+    investAmounts, investTimestamps, sudahRefundMap, now,
     REFUND_WINDOW_SECONDS,
     handleInvest, handleWithdraw, handleRefund,
     handleInvestAmountChange, handleSuccess,

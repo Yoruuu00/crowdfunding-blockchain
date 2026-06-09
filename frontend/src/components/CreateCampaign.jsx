@@ -108,7 +108,7 @@ function CreateCampaign({ account, showToast, onSuccess }) {
           <label className="form-label">FUNDING LIMIT (ETH)</label>
           <input 
             type="number" 
-            step="0.01" 
+            step="any" 
             min="0.001" 
             className="form-input" 
             placeholder="1.00"

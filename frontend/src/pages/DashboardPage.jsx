@@ -2,7 +2,7 @@ import React, { useState } from "react";
 
 function DashboardPage({
   account, campaigns, loading,
-  investAmounts, investTimestamps, now,
+  investAmounts, investTimestamps, sudahRefundMap, now,
   REFUND_WINDOW_SECONDS,
   handleInvest, handleRefund,
   handleInvestAmountChange, getSisaRefund,
@@ -17,18 +17,13 @@ function DashboardPage({
     await handleInvest(campaignId, amount);
   };
 
-  // Filter & Sort
   const getProcessedCampaigns = () => {
     let processed = [...campaigns];
-
-    // Search by title
     if (searchTerm.trim() !== "") {
       processed = processed.filter(c =>
         c.judul.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-
-    // Sort
     switch (sortOption) {
       case "NEWEST":
         processed.sort((a, b) => b.id - a.id);
@@ -102,9 +97,12 @@ function DashboardPage({
               const dateObj = new Date(c.deadline * 1000);
               const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
 
-              // Refund logic
+              // Lapis 2: cek sudahRefund dari contract
               const investTime = investTimestamps?.[c.id] || 0;
-              const canRefund = investTime > 0 && now < (investTime + REFUND_WINDOW_SECONDS) * 1000;
+              const alreadyRefunded = sudahRefundMap?.[c.id] || false;
+              const canRefund = investTime > 0
+                && now < (investTime + REFUND_WINDOW_SECONDS) * 1000
+                && !alreadyRefunded; // ← tombol hilang kalau sudah refund
               const { menit, detik } = getSisaRefund ? getSisaRefund(investTime) : { menit: 0, detik: 0 };
 
               return (
@@ -178,7 +176,7 @@ function DashboardPage({
                     </div>
                   )}
 
-                  {/* Tombol Refund */}
+                  {/* Tombol Refund — hilang otomatis kalau sudah pernah refund */}
                   {canRefund && (
                     <div className="contribution-row" style={{
                       marginTop: "0.5rem", borderTop: "1px dashed #e63946",
@@ -188,7 +186,7 @@ function DashboardPage({
                         ⚠ REFUND WINDOW ACTIVE — EXPIRES IN {menit}m {detik}s
                       </div>
                       <div style={{ fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "#888" }}>
-                        HUMAN ERROR PROTECTION: CANCEL YOUR INVESTMENT WITHIN 2 HOURS
+                        HUMAN ERROR PROTECTION: 1x REFUND ONLY PER CAMPAIGN
                       </div>
                       <button
                         className="btn-secondary"
@@ -198,6 +196,18 @@ function DashboardPage({
                       >
                         {loading ? "PROCESSING..." : "CANCEL INVESTMENT (REFUND)"}
                       </button>
+                    </div>
+                  )}
+
+                  {/* Info: sudah pernah refund */}
+                  {alreadyRefunded && (
+                    <div style={{
+                      marginTop: "0.5rem", padding: "0.5rem",
+                      background: "#f0f0f0", borderRadius: "4px",
+                      fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "#888",
+                      textAlign: "center",
+                    }}>
+                      REFUND SUDAH DIGUNAKAN — TIDAK BISA REFUND LAGI
                     </div>
                   )}
 
