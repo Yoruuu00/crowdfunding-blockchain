@@ -116,7 +116,8 @@ function AppContent() {
   const [toast, setToast] = useState(null);
   const [investAmounts, setInvestAmounts] = useState({});
   const [investTimestamps, setInvestTimestamps] = useState({});
-  const [sudahRefundMap, setSudahRefundMap] = useState({}); // Lapis 2: track status refund
+  const [sudahRefundMap, setSudahRefundMap] = useState({});
+  const [userKontribusi, setUserKontribusi] = useState({}); // Untuk cek apakah user invest di campaign
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -171,22 +172,26 @@ function AppContent() {
     }
   }, []);
 
-  // Load timestamps + status sudahRefund dari contract
+  // Load timestamps + sudahRefund + kontribusi user
   const loadInvestTimestamps = useCallback(async () => {
     if (!account || campaigns.length === 0) return;
     try {
       const contract = getReadOnlyContract();
       const timestamps = {};
       const refundStatus = {};
+      const kontribusiMap = {};
       for (const c of campaigns) {
         const ts = await contract.waktuInvestasi(c.id, account);
         timestamps[c.id] = Number(ts);
-        // Lapis 2: baca status sudahRefund dari contract
         const sudah = await contract.sudahRefund(c.id, account);
         refundStatus[c.id] = sudah;
+        // Cek kontribusi untuk fitur refund campaign gagal
+        const kontrib = await contract.kontribusi(c.id, account);
+        kontribusiMap[c.id] = ethers.formatEther(kontrib);
       }
       setInvestTimestamps(timestamps);
       setSudahRefundMap(refundStatus);
+      setUserKontribusi(kontribusiMap);
     } catch (error) {
       console.error("Error loading timestamps:", error);
     }
@@ -257,9 +262,26 @@ function AppContent() {
       await tx.wait();
       showToast("REFUND SUCCESS", "Investment returned to wallet.", "success");
       await loadCampaigns();
-      loadInvestTimestamps(); // update sudahRefundMap juga
+      loadInvestTimestamps();
       const details = await getWeb3Details(); setBalance(details.balance);
     } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Refund failed.", "error"); }
+    finally { setLoading(false); }
+  };
+
+  // BARU: Klaim refund kalau campaign GAGAL
+  const handleRefundGagal = async (campaignId) => {
+    if (!account) { showToast("WALLET REQUIRED", "Connect wallet first.", "error"); return; }
+    try {
+      setLoading(true);
+      const contract = await getWriteContract();
+      const tx = await contract.refundCampaignGagal(campaignId);
+      showToast("TX SUBMITTED", "Processing failed campaign refund...", "info");
+      await tx.wait();
+      showToast("REFUND SUCCESS", "Dana berhasil dikembalikan ke wallet.", "success");
+      await loadCampaigns();
+      loadInvestTimestamps();
+      const details = await getWeb3Details(); setBalance(details.balance);
+    } catch (error) { showToast("TX REVERTED", error.reason || error.message || "Klaim gagal.", "error"); }
     finally { setLoading(false); }
   };
 
@@ -281,9 +303,9 @@ function AppContent() {
 
   const sharedProps = {
     account, campaigns, loading,
-    investAmounts, investTimestamps, sudahRefundMap, now,
+    investAmounts, investTimestamps, sudahRefundMap, userKontribusi, now,
     REFUND_WINDOW_SECONDS,
-    handleInvest, handleWithdraw, handleRefund,
+    handleInvest, handleWithdraw, handleRefund, handleRefundGagal,
     handleInvestAmountChange, handleSuccess,
     getSisaRefund, showToast, loadCampaigns,
   };

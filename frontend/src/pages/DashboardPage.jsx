@@ -2,9 +2,9 @@ import React, { useState } from "react";
 
 function DashboardPage({
   account, campaigns, loading,
-  investAmounts, investTimestamps, sudahRefundMap, now,
+  investAmounts, investTimestamps, sudahRefundMap, userKontribusi, now,
   REFUND_WINDOW_SECONDS,
-  handleInvest, handleRefund,
+  handleInvest, handleRefund, handleRefundGagal,
   handleInvestAmountChange, getSisaRefund,
 }) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -50,7 +50,6 @@ function DashboardPage({
     <main className="main-layout">
       <section className="panel-left">
 
-        {/* Header + Search & Sort */}
         <div style={{
           display: "flex", justifyContent: "space-between",
           alignItems: "center", marginBottom: "1rem",
@@ -97,20 +96,27 @@ function DashboardPage({
               const dateObj = new Date(c.deadline * 1000);
               const isUserOwner = account && account.toLowerCase() === c.pemilik.toLowerCase();
 
-              // Lapis 2: cek sudahRefund dari contract
+              // Refund 2 jam
               const investTime = investTimestamps?.[c.id] || 0;
               const alreadyRefunded = sudahRefundMap?.[c.id] || false;
               const canRefund = investTime > 0
                 && now < (investTime + REFUND_WINDOW_SECONDS) * 1000
-                && !alreadyRefunded; // ← tombol hilang kalau sudah refund
+                && !alreadyRefunded;
               const { menit, detik } = getSisaRefund ? getSisaRefund(investTime) : { menit: 0, detik: 0 };
+
+              // Refund campaign gagal
+              const userKontribusiAmount = parseFloat(userKontribusi?.[c.id] || "0");
+              const isCampaignFailed = isDeadlinePassed
+                && c.aktif
+                && parseFloat(c.danaTerkumpul) < parseFloat(c.targetDana);
+              const canRefundFailed = isCampaignFailed && userKontribusiAmount > 0;
 
               return (
                 <div className="campaign-card" key={c.id}>
                   <div className="campaign-meta-line">
                     <span className="campaign-index">{formatIndex(c.id)}</span>
                     <span className={`campaign-status ${isActive ? "status-active" : "status-closed"}`}>
-                      {isActive ? "ACTIVE" : "CLOSED"}
+                      {isActive ? "ACTIVE" : isCampaignFailed ? "FAILED" : "CLOSED"}
                     </span>
                   </div>
 
@@ -148,17 +154,16 @@ function DashboardPage({
                     <div className="ledger-cell">
                       <span className="ledger-cell-label">STATUS CODE</span>
                       <span className="ledger-cell-value">
-                        {isActive ? "0x01 / ACTIVE" : "0x00 / CLOSED"}
+                        {isActive ? "0x01 / ACTIVE" : isCampaignFailed ? "0x02 / FAILED" : "0x00 / CLOSED"}
                       </span>
                     </div>
                   </div>
 
-                  {/* Tombol Investasi */}
-                  {isActive && (
+                  {isActive && !isUserOwner && (
                     <div className="contribution-row">
                       <div className="input-mono-wrapper">
                         <input
-                          type="number" step="0.01" min="0" placeholder="0.10"
+                          type="number" step="any" min="0" placeholder="0.10"
                           className="form-input"
                           value={investAmounts?.[c.id] || ""}
                           onChange={(e) => handleInvestAmountChange(c.id, e.target.value)}
@@ -176,7 +181,7 @@ function DashboardPage({
                     </div>
                   )}
 
-                  {/* Tombol Refund — hilang otomatis kalau sudah pernah refund */}
+                  
                   {canRefund && (
                     <div className="contribution-row" style={{
                       marginTop: "0.5rem", borderTop: "1px dashed #e63946",
@@ -199,8 +204,8 @@ function DashboardPage({
                     </div>
                   )}
 
-                  {/* Info: sudah pernah refund */}
-                  {alreadyRefunded && (
+                  
+                  {alreadyRefunded && !isCampaignFailed && (
                     <div style={{
                       marginTop: "0.5rem", padding: "0.5rem",
                       background: "#f0f0f0", borderRadius: "4px",
@@ -208,6 +213,29 @@ function DashboardPage({
                       textAlign: "center",
                     }}>
                       REFUND SUDAH DIGUNAKAN — TIDAK BISA REFUND LAGI
+                    </div>
+                  )}
+
+                 
+                  {canRefundFailed && (
+                    <div className="contribution-row" style={{
+                      marginTop: "0.5rem", borderTop: "1px dashed #e63946",
+                      paddingTop: "0.75rem", flexDirection: "column", gap: "0.5rem",
+                    }}>
+                      <div style={{ fontSize: "0.72rem", fontFamily: "var(--font-mono)", color: "#e63946" }}>
+                        ⚠ CAMPAIGN GAGAL — TARGET TIDAK TERCAPAI
+                      </div>
+                      <div style={{ fontSize: "0.68rem", fontFamily: "var(--font-mono)", color: "#888" }}>
+                        ANDA INVESTASI {userKontribusi[c.id]} ETH — BISA DIKLAIM KEMBALI
+                      </div>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => handleRefundGagal(c.id)}
+                        disabled={loading}
+                        style={{ borderColor: "#e63946", color: "#e63946", width: "100%" }}
+                      >
+                        {loading ? "PROCESSING..." : "CLAIM FAILED CAMPAIGN REFUND"}
+                      </button>
                     </div>
                   )}
 

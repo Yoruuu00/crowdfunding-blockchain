@@ -100,7 +100,7 @@ contract CrowdfundingContract {
 
         require(jumlah > 0, "Anda belum berinvestasi di campaign ini");
         require(
-            block.timestamp <= waktuInvestasi[_campaignId][msg.sender] + 2 minutes,
+            block.timestamp <= waktuInvestasi[_campaignId][msg.sender] + 2 hours,
             "Batas waktu refund 2 jam sudah lewat"
         );
         // Lapis 1: Cegah refund berulang
@@ -121,9 +121,22 @@ contract CrowdfundingContract {
         emit RefundDilakukan(_campaignId, msg.sender, jumlah);
     }
 
-    // ─────────────────────────────────────────
-    // READ FUNCTIONS
-    // ─────────────────────────────────────────
+        function refundCampaignGagal(uint _campaignId) public {
+        Campaign storage c = campaigns[_campaignId];
+        uint jumlah = kontribusi[_campaignId][msg.sender];
+
+        require(jumlah > 0, "Anda tidak berinvestasi di campaign ini");
+        require(c.aktif, "Campaign sudah ditutup");
+        require(block.timestamp > c.deadline, "Campaign masih berjalan");
+        require(c.danaTerkumpul < c.targetDana, "Campaign berhasil mencapai target");
+
+        kontribusi[_campaignId][msg.sender] = 0;
+        c.danaTerkumpul -= jumlah;
+
+        payable(msg.sender).transfer(jumlah);
+        emit RefundDilakukan(_campaignId, msg.sender, jumlah);
+    }
+
 
     function semuaCampaign() public view returns (Campaign[] memory) {
         Campaign[] memory hasil = new Campaign[](jumlahCampaign);
