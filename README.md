@@ -17,7 +17,7 @@ Modul bagi pemilik usaha untuk:
 * Mendaftarkan proposal proyek (*Initialize Entry*)
 * Menentukan target pendanaan
 * Mengatur durasi pendanaan (*lifespan*)
-* Melakukan penarikan dana apabila target tercapai atau periode telah berakhir
+* Melakukan penarikan dana **hanya apabila target pendanaan tercapai** (model *All-or-Nothing*)
 
 ### Investor Portfolio
 
@@ -26,11 +26,28 @@ Modul bagi investor untuk:
 * Menjelajahi daftar proyek aktif (*Active Ledger*)
 * Memberikan pendanaan menggunakan Ether (**ETH**)
 * Melihat riwayat investasi pribadi
-* Menggunakan fitur *Human Error Protection* berupa **Refund Window** dalam batas waktu tertentu setelah kontribusi
+* Menggunakan fitur *Human Error Protection* berupa **Refund Window 2 Jam** setelah kontribusi
+* Mengklaim kembali dana apabila campaign gagal mencapai target
 
 ---
 
-## 2. Arsitektur Sistem
+## 2. Fitur Unggulan
+
+### All-or-Nothing Model
+Dana hanya dapat dicairkan founder apabila target pendanaan **100% tercapai**. Jika campaign gagal mencapai target setelah deadline, founder tidak dapat mencairkan dana dan investor berhak mengklaim kembali seluruh ETH mereka.
+
+### Human Error Protection — Refund 2 Jam
+Investor memiliki jendela waktu **2 jam** setelah berinvestasi untuk membatalkan transaksi dan mendapatkan kembali dana 100%. Hak refund ini berlaku **1x per investor per campaign** untuk mencegah penyalahgunaan sistem.
+
+### Failed Campaign Refund
+Apabila campaign gagal mencapai target setelah deadline, investor dapat mengklaim kembali dana mereka secara mandiri melalui mekanisme **Pull Pattern** — standar industri DeFi yang aman dan efisien secara gas fee.
+
+### Role-Based Navigation
+Pemisahan antarmuka Investor dan Founder dilakukan di level UX tanpa membatasi akses di level smart contract, sesuai filosofi Web3 yang *permissionless*.
+
+---
+
+## 3. Arsitektur Sistem
 
 Aplikasi menggunakan arsitektur **Single Page Application (SPA)** yang terhubung dengan jaringan blockchain lokal.
 
@@ -58,13 +75,13 @@ BC -->|Execute Logic| SC
 
 #### Blockchain Development Stack
 
-* Solidity
+* Solidity ^0.8.19
 * Hardhat
 * Ethers.js v6
 
 ---
 
-## 3. Cara Menjalankan Project
+## 4. Cara Menjalankan Project
 
 Ikuti langkah berikut untuk menjalankan ekosistem ChainFund secara lokal.
 
@@ -168,14 +185,41 @@ Kemudian:
 
 ---
 
-## 4. Workflow Singkat
+## 5. Workflow Sistem
 
 ```text
-Founder → Create Campaign
+Founder → Create Campaign (target + deadline)
           ↓
-Investor → Fund Project
+Investor → Fund Project (contribute ETH)
           ↓
-Smart Contract → Store Transaction
+          ┌─────────────────────────────────┐
+          │     Dalam 2 jam setelah invest  │
+          │  Investor → Refund (1x only)    │
+          └─────────────────────────────────┘
           ↓
-Founder → Withdraw / Investor → Refund
+Smart Contract → Validasi deadline & target
+          ↓
+    ┌─────┴─────┐
+    │           │
+Target      Target TIDAK
+Tercapai    Tercapai
+    │           │
+    ↓           ↓
+Founder →   Investor →
+Withdraw    Claim Refund
+(Settle     (Failed Campaign
+ Funds)      Refund)
 ```
+
+---
+
+## 6. Smart Contract Functions
+
+| Fungsi | Akses | Deskripsi |
+|--------|-------|-----------|
+| `buatCampaign()` | Founder | Membuat campaign baru |
+| `investasi()` | Investor | Kontribusi ETH ke campaign |
+| `tarikDana()` | Founder | Cairkan dana (target harus tercapai) |
+| `refundDuaJam()` | Investor | Refund dalam 2 jam (1x per campaign) |
+| `refundCampaignGagal()` | Investor | Klaim refund jika campaign gagal |
+| `semuaCampaign()` | Public | Ambil semua data campaign |
